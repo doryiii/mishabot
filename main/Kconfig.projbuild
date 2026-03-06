@@ -1,0 +1,39 @@
+menu "Project Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "YOUR_WIFI_NAME"
+        help
+            SSID of your WiFi network.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "YOUR_WIFI_PASSWORD"
+        help
+            Password of your WiFi network.
+
+    config WIFI_MAXIMUM_RETRY
+        int "WiFi Maximum Retry. 0 for indefinite retries."
+        default 0
+        help
+            Maximum number of retries to connect to WiFi.
+
+    config DISCORD_BOT_TOKEN
+        string "Discord Bot Token"
+        default "YOUR_BOT_TOKEN_HERE"
+        help
+            Your Discord Bot Token.
+
+    config DANBOORU_LOGIN
+        string "Danbooru Login"
+        default "YOUR_DANBOORU_USERNAME"
+        help
+            Your Danbooru username/login.
+
+    config DANBOORU_API_KEY
+        string "Danbooru API Key"
+        default "YOUR_DANBOORU_APIKEY"
+        help
+            Your Danbooru API Key.
+
+endmenu

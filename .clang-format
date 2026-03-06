@@ -1,0 +1,7 @@
+Language: C
+BasedOnStyle: LLVM
+IndentWidth: 2
+ContinuationIndentWidth: 4
+AlignAfterOpenBracket: BlockIndent
+BinPackArguments: true
+BinPackParameters: true
