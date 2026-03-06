@@ -29,6 +29,14 @@
 
 static const char *TAG = "discord_bot";
 
+#ifdef CONFIG_LED_INVERTED
+#define LED_ON 0
+#define LED_OFF 1
+#else
+#define LED_ON 1
+#define LED_OFF 0
+#endif
+
 static esp_websocket_client_handle_t ws_client = NULL;
 static int last_seq_num = -1;
 static int heartbeat_interval_ms = 0;
@@ -164,7 +172,7 @@ static char *fetch_danbooru_image_url(const char *tags) {
 }
 
 static void handle_character_command(const char *channel_id, const char *tags) {
-  gpio_set_level(CONFIG_LED_GPIO, 1);
+  gpio_set_level(CONFIG_LED_GPIO, LED_ON);
 
   char *image_url = fetch_danbooru_image_url(tags);
   if (image_url) {
@@ -174,7 +182,7 @@ static void handle_character_command(const char *channel_id, const char *tags) {
     ESP_LOGW(TAG, "Could not get image URL from Danbooru for %s", tags);
   }
 
-  gpio_set_level(CONFIG_LED_GPIO, 0);
+  gpio_set_level(CONFIG_LED_GPIO, LED_OFF);
 }
 
 static void on_message(cJSON *d) {
@@ -357,7 +365,7 @@ void discord_bot_task(void *pvParameters) {
   // Initialize LED GPIO
   gpio_reset_pin(CONFIG_LED_GPIO);
   gpio_set_direction(CONFIG_LED_GPIO, GPIO_MODE_OUTPUT);
-  gpio_set_level(CONFIG_LED_GPIO, 0);
+  gpio_set_level(CONFIG_LED_GPIO, LED_OFF);
 
   bot_config = (discord_bot_config_t *)pvParameters;
 

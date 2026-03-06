@@ -42,4 +42,10 @@ menu "Project Configuration"
         help
             GPIO pin for the onboard LED.
 
+    config LED_INVERTED
+        bool "LED Polarity Inverted (Active Low)"
+        default n
+        help
+            Set to 'y' if the LED is on when the GPIO is LOW.
+
 endmenu
