@@ -36,4 +36,10 @@ menu "Project Configuration"
         help
             Your Danbooru API Key.
 
+    config LED_GPIO
+        int "LED GPIO Pin"
+        default 2
+        help
+            GPIO pin for the onboard LED.
+
 endmenu

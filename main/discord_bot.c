@@ -17,6 +17,7 @@
 #include "discord_bot.h"
 
 #include "cJSON.h"
+#include "driver/gpio.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
@@ -163,13 +164,17 @@ static char *fetch_danbooru_image_url(const char *tags) {
 }
 
 static void handle_character_command(const char *channel_id, const char *tags) {
+  gpio_set_level(CONFIG_LED_GPIO, 1);
+
   char *image_url = fetch_danbooru_image_url(tags);
   if (image_url) {
     send_discord_image_embed(channel_id, image_url);
     free(image_url);
   } else {
-    ESP_LOGW(TAG, "Could not get image URL from Danbooru");
+    ESP_LOGW(TAG, "Could not get image URL from Danbooru for %s", tags);
   }
+
+  gpio_set_level(CONFIG_LED_GPIO, 0);
 }
 
 static void on_message(cJSON *d) {
@@ -218,7 +223,7 @@ static void on_message(cJSON *d) {
 
   cJSON *username = cJSON_GetObjectItem(author, "username");
   if (cJSON_IsString(username)) {
-    ESP_LOGI(
+    ESP_LOGV(
         TAG, "New message from %s: %s", username->valuestring,
         content->valuestring
     );
@@ -348,6 +353,12 @@ static void websocket_event_handler(
 
 void discord_bot_task(void *pvParameters) {
   ESP_LOGI(TAG, "Starting Discord Bot Task");
+
+  // Initialize LED GPIO
+  gpio_reset_pin(CONFIG_LED_GPIO);
+  gpio_set_direction(CONFIG_LED_GPIO, GPIO_MODE_OUTPUT);
+  gpio_set_level(CONFIG_LED_GPIO, 0);
+
   bot_config = (discord_bot_config_t *)pvParameters;
 
   if (!bot_config || !bot_config->token) {
