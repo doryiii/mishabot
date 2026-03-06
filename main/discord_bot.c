@@ -77,6 +77,26 @@ static void discord_send_identify(esp_websocket_client_handle_t client) {
   cJSON_Delete(root);
 }
 
+static void send_discord_typing(const char *channel_id) {
+  char url[128];
+  snprintf(
+      url, sizeof(url), "https://discord.com/api/v10/channels/%s/typing",
+      channel_id
+  );
+  esp_http_client_config_t config = {
+      .url = url,
+      .method = HTTP_METHOD_POST,
+      .crt_bundle_attach = esp_crt_bundle_attach,
+  };
+  esp_http_client_handle_t client = esp_http_client_init(&config);
+
+  char auth_header[256];
+  snprintf(auth_header, sizeof(auth_header), "Bot %s", bot_config->token);
+  esp_http_client_set_header(client, "Authorization", auth_header);
+  esp_http_client_set_header(client, "Content-Type", "application/json");
+  esp_http_client_perform(client);  // we don't care about errors for "typing"
+}
+
 static void
 send_discord_image_embed(const char *channel_id, const char *image_url) {
   if (!bot_config)
@@ -173,6 +193,7 @@ static char *fetch_danbooru_image_url(const char *tags) {
 
 static void handle_character_command(const char *channel_id, const char *tags) {
   gpio_set_level(CONFIG_LED_GPIO, LED_ON);
+  send_discord_typing(channel_id);
 
   char *image_url = fetch_danbooru_image_url(tags);
   if (image_url) {
@@ -203,7 +224,7 @@ static void on_message(cJSON *d) {
     return;
 
   if (strcmp(content->valuestring, ".misha") == 0) {
-    ESP_LOGI(TAG, "Command .misha detected");
+    ESP_LOGI(TAG, ".misha");
     handle_character_command(
         channel_id->valuestring,
         "misha_%28honkai%3A_star_rail%29+rating%3Ageneral"
@@ -289,7 +310,7 @@ static void websocket_event_handler(
       char *json_str = malloc(data->data_len + 1);
       if (!json_str) {
         ESP_LOGE(TAG, "Failed to allocate memory for JSON string");
-        return;
+        break;
       }
       memcpy(json_str, data->data_ptr, data->data_len);
       json_str[data->data_len] = '\0';
@@ -337,10 +358,10 @@ static void websocket_event_handler(
           }
         }
       } else if (opcode == 11) { // Heartbeat ACK
-        ESP_LOGI(TAG, "Received Heartbeat ACK");
+        ESP_LOGD(TAG, "Received Heartbeat ACK");
       } else if (opcode == 0) { // Dispatch
         if (cJSON_IsString(t)) {
-          ESP_LOGI(TAG, "Received Dispatch Event: %s", t->valuestring);
+          ESP_LOGD(TAG, "Received Dispatch Event: %s", t->valuestring);
           if (strcmp(t->valuestring, "READY") == 0) {
             ESP_LOGI(TAG, "Discord Bot is READY!");
           } else if (strcmp(t->valuestring, "MESSAGE_CREATE") == 0) {
@@ -354,7 +375,7 @@ static void websocket_event_handler(
     break;
 
   case WEBSOCKET_EVENT_ERROR:
-    ESP_LOGI(TAG, "WEBSOCKET_EVENT_ERROR");
+    ESP_LOGW(TAG, "WEBSOCKET_EVENT_ERROR");
     break;
   }
 }
