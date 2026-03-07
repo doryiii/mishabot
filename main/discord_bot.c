@@ -45,7 +45,7 @@ static discord_bot_config_t *bot_config = NULL;
 
 #define DANBOORU_API_BASE                                                      \
   "https://danbooru.donmai.us/posts/random.json?login=" CONFIG_DANBOORU_LOGIN  \
-  "&api_key=" CONFIG_DANBOORU_API_KEY "&tags="
+  "&api_key=" CONFIG_DANBOORU_API_KEY "&tags=rating%3Ageneral+"
 
 static void discord_send_identify(esp_websocket_client_handle_t client) {
   if (!bot_config)
@@ -77,12 +77,19 @@ static void discord_send_identify(esp_websocket_client_handle_t client) {
   cJSON_Delete(root);
 }
 
-static void send_discord_typing(const char *channel_id) {
-  char url[128];
+static esp_err_t discord_api_post(
+    const char *channel_id, const char *endpoint, const char *post_data
+) {
+  if (!bot_config) {
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  char url[256];
   snprintf(
-      url, sizeof(url), "https://discord.com/api/v10/channels/%s/typing",
-      channel_id
+      url, sizeof(url), "https://discord.com/api/v10/channels/%s/%s",
+      channel_id, endpoint
   );
+
   esp_http_client_config_t config = {
       .url = url,
       .method = HTTP_METHOD_POST,
@@ -94,20 +101,34 @@ static void send_discord_typing(const char *channel_id) {
   snprintf(auth_header, sizeof(auth_header), "Bot %s", bot_config->token);
   esp_http_client_set_header(client, "Authorization", auth_header);
   esp_http_client_set_header(client, "Content-Type", "application/json");
-  esp_http_client_perform(client);  // we don't care about errors for "typing"
+
+  if (post_data) {
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+  }
+
+  esp_err_t err = esp_http_client_perform(client);
+  if (err == ESP_OK) {
+    int status_code = esp_http_client_get_status_code(client);
+    if (status_code >= 200 && status_code < 300) {
+      ESP_LOGI(TAG, "Discord POST %s success (%d)", endpoint, status_code);
+    } else {
+      ESP_LOGE(TAG, "Discord POST %s failed (%d)", endpoint, status_code);
+      err = ESP_FAIL;
+    }
+  } else {
+    ESP_LOGE(TAG, "Discord POST %s error: %s", endpoint, esp_err_to_name(err));
+  }
+
+  esp_http_client_cleanup(client);
+  return err;
+}
+
+static void send_discord_typing(const char *channel_id) {
+  discord_api_post(channel_id, "typing", NULL);
 }
 
 static void
 send_discord_image_embed(const char *channel_id, const char *image_url) {
-  if (!bot_config)
-    return;
-
-  char url[128];
-  snprintf(
-      url, sizeof(url), "https://discord.com/api/v10/channels/%s/messages",
-      channel_id
-  );
-
   cJSON *root = cJSON_CreateObject();
   cJSON *embeds = cJSON_CreateArray();
   cJSON *embed = cJSON_CreateObject();
@@ -120,30 +141,8 @@ send_discord_image_embed(const char *channel_id, const char *image_url) {
 
   char *post_data = cJSON_PrintUnformatted(root);
 
-  esp_http_client_config_t config = {
-      .url = url,
-      .method = HTTP_METHOD_POST,
-      .crt_bundle_attach = esp_crt_bundle_attach,
-  };
-  esp_http_client_handle_t client = esp_http_client_init(&config);
+  discord_api_post(channel_id, "messages", post_data);
 
-  char auth_header[256];
-  snprintf(auth_header, sizeof(auth_header), "Bot %s", bot_config->token);
-  esp_http_client_set_header(client, "Authorization", auth_header);
-  esp_http_client_set_header(client, "Content-Type", "application/json");
-  esp_http_client_set_post_field(client, post_data, strlen(post_data));
-
-  esp_err_t err = esp_http_client_perform(client);
-  if (err == ESP_OK) {
-    ESP_LOGI(
-        TAG, "Discord message sent, status = %d",
-        esp_http_client_get_status_code(client)
-    );
-  } else {
-    ESP_LOGE(TAG, "Failed to send Discord message: %s", esp_err_to_name(err));
-  }
-
-  esp_http_client_cleanup(client);
   free(post_data);
   cJSON_Delete(root);
 }
@@ -227,26 +226,26 @@ static void on_message(cJSON *d) {
     ESP_LOGI(TAG, ".misha");
     handle_character_command(
         channel_id->valuestring,
-        "misha_%28honkai%3A_star_rail%29+rating%3Ageneral"
+        "misha_%28honkai%3A_star_rail%29"
     );
     return;
   } else if (strcmp(content->valuestring, ".furina") == 0) {
     ESP_LOGI(TAG, "Command .furina detected");
     handle_character_command(
-        channel_id->valuestring, "furina_%28genshin_impact%29+rating%3Ageneral"
+        channel_id->valuestring, "furina_%28genshin_impact%29"
     );
     return;
   } else if (strcmp(content->valuestring, ".karen") == 0) {
     ESP_LOGI(TAG, "Command .karen detected");
-    handle_character_command(
-        channel_id->valuestring, "kujou_karen+rating%3Ageneral"
-    );
+    handle_character_command(channel_id->valuestring, "kujou_karen");
     return;
   } else if (strcmp(content->valuestring, ".kokomi") == 0) {
     ESP_LOGI(TAG, "Command .kokomi detected");
-    handle_character_command(
-        channel_id->valuestring, "sangonomiya_kokomi+rating%3Ageneral"
-    );
+    handle_character_command(channel_id->valuestring, "sangonomiya_kokomi");
+    return;
+  } else if (strcmp(content->valuestring, ".reisen") == 0) {
+    ESP_LOGI(TAG, "Command .reisen detected");
+    handle_character_command(channel_id->valuestring, "reisen_udongein_inaba");
     return;
   }
 

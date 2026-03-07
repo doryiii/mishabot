@@ -24,7 +24,7 @@
 #include <string.h>
 
 static const char *TAG = "main";
-#define MISHA_TOKEN CONFIG_DISCORD_BOT_TOKEN
+
 
 void app_main(void) {
   // Initialize NVS
@@ -50,7 +50,7 @@ void app_main(void) {
   }
 
   static discord_bot_config_t discord_cfg = {
-      .token = MISHA_TOKEN,
+      .token = CONFIG_DISCORD_BOT_TOKEN,
       .intents =
           (DISCORD_INTENT_GUILDS | DISCORD_INTENT_GUILD_MEMBERS |
            DISCORD_INTENT_GUILD_MESSAGES | DISCORD_INTENT_MESSAGE_CONTENT),
