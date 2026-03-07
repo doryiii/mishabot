@@ -194,6 +194,7 @@ static void handle_character_command(const char *channel_id, const char *tags) {
   gpio_set_level(CONFIG_LED_GPIO, LED_ON);
   send_discord_typing(channel_id);
 
+  ESP_LOGI(TAG, "Getting %s images", tags);
   char *image_url = fetch_danbooru_image_url(tags);
   if (image_url) {
     send_discord_image_embed(channel_id, image_url);
@@ -221,40 +222,29 @@ static void on_message(cJSON *d) {
   cJSON *channel_id = cJSON_GetObjectItem(d, "channel_id");
   if (!cJSON_IsString(channel_id))
     return;
+  const char* channel = channel_id->valuestring;
 
   if (strcmp(content->valuestring, ".misha") == 0) {
     ESP_LOGI(TAG, ".misha");
-    handle_character_command(
-        channel_id->valuestring,
-        "misha_%28honkai%3A_star_rail%29"
-    );
-    return;
-  } else if (strcmp(content->valuestring, ".furina") == 0) {
-    ESP_LOGI(TAG, "Command .furina detected");
-    handle_character_command(
-        channel_id->valuestring, "furina_%28genshin_impact%29"
-    );
-    return;
-  } else if (strcmp(content->valuestring, ".karen") == 0) {
-    ESP_LOGI(TAG, "Command .karen detected");
-    handle_character_command(channel_id->valuestring, "kujou_karen");
-    return;
-  } else if (strcmp(content->valuestring, ".kokomi") == 0) {
-    ESP_LOGI(TAG, "Command .kokomi detected");
-    handle_character_command(channel_id->valuestring, "sangonomiya_kokomi");
-    return;
-  } else if (strcmp(content->valuestring, ".reisen") == 0) {
-    ESP_LOGI(TAG, "Command .reisen detected");
-    handle_character_command(channel_id->valuestring, "reisen_udongein_inaba");
-    return;
-  }
+    handle_character_command(channel, "misha_%28honkai%3A_star_rail%29");
 
-  cJSON *username = cJSON_GetObjectItem(author, "username");
-  if (cJSON_IsString(username)) {
-    ESP_LOGV(
-        TAG, "New message from %s: %s", username->valuestring,
-        content->valuestring
-    );
+  } else if (strcmp(content->valuestring, ".furina") == 0) {
+    handle_character_command(channel, "furina_%28genshin_impact%29");
+
+  } else if (strcmp(content->valuestring, ".karen") == 0) {
+    handle_character_command(channel, "kujou_karen");
+
+  } else if (strcmp(content->valuestring, ".kokomi") == 0) {
+    handle_character_command(channel, "sangonomiya_kokomi");
+
+  } else if (strcmp(content->valuestring, ".reisen") == 0) {
+    handle_character_command(channel, "reisen_udongein_inaba");
+
+  } else {
+    cJSON *username = cJSON_GetObjectItem(author, "username");
+    if (cJSON_IsString(username)) {
+      ESP_LOGV(TAG, "[%s]: %s", username->valuestring, content->valuestring);
+    }
   }
 }
 
@@ -302,6 +292,7 @@ static void websocket_event_handler(
       vTaskDelete(heartbeat_task_handle);
       heartbeat_task_handle = NULL;
     }
+    last_seq_num = -1;
     break;
 
   case WEBSOCKET_EVENT_DATA:
@@ -400,6 +391,9 @@ void discord_bot_task(void *pvParameters) {
       .crt_bundle_attach = esp_crt_bundle_attach,
       .buffer_size = 16384,
       .task_stack = 8192,
+      .reconnect_timeout_ms = 10000,
+      .network_timeout_ms = 10000,
+      .enable_close_reconnect = true,
   };
   ws_client = esp_websocket_client_init(&websocket_cfg);
   if (!ws_client) {
