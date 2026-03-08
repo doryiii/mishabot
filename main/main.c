@@ -14,6 +14,8 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+#include <string.h>
+
 #include "discord_bot.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -21,9 +23,8 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "wifi_station.h"
-#include <string.h>
 
-static const char *TAG = "main";
+static const char* TAG = "main";
 
 
 void app_main(void) {
@@ -56,6 +57,6 @@ void app_main(void) {
            DISCORD_INTENT_GUILD_MESSAGES | DISCORD_INTENT_MESSAGE_CONTENT),
   };
   xTaskCreate(
-      discord_bot_task, "discord_bot", 8192, (void *)&discord_cfg, 5, NULL
+      discord_bot_task, "discord_bot", 8192, (void*)&discord_cfg, 5, NULL
   );
 }

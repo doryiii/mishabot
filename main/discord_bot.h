@@ -23,21 +23,21 @@
  * Reference: https://discord.com/developers/docs/topics/gateway#gateway-intents
  */
 #define DISCORD_INTENT_GUILDS (1 << 0)
-#define DISCORD_INTENT_GUILD_MEMBERS (1 << 1) // Privileged
+#define DISCORD_INTENT_GUILD_MEMBERS (1 << 1)  // Privileged
 #define DISCORD_INTENT_GUILD_MODERATION (1 << 2)
 #define DISCORD_INTENT_GUILD_EXPRESSIONS (1 << 3)
 #define DISCORD_INTENT_GUILD_INTEGRATIONS (1 << 4)
 #define DISCORD_INTENT_GUILD_WEBHOOKS (1 << 5)
 #define DISCORD_INTENT_GUILD_INVITES (1 << 6)
 #define DISCORD_INTENT_GUILD_VOICE_STATES (1 << 7)
-#define DISCORD_INTENT_GUILD_PRESENCES (1 << 8) // Privileged
+#define DISCORD_INTENT_GUILD_PRESENCES (1 << 8)  // Privileged
 #define DISCORD_INTENT_GUILD_MESSAGES (1 << 9)
 #define DISCORD_INTENT_GUILD_MESSAGE_REACTIONS (1 << 10)
 #define DISCORD_INTENT_GUILD_MESSAGE_TYPING (1 << 11)
 #define DISCORD_INTENT_DIRECT_MESSAGES (1 << 12)
 #define DISCORD_INTENT_DIRECT_MESSAGE_REACTIONS (1 << 13)
 #define DISCORD_INTENT_DIRECT_MESSAGE_TYPING (1 << 14)
-#define DISCORD_INTENT_MESSAGE_CONTENT (1 << 15) // Privileged
+#define DISCORD_INTENT_MESSAGE_CONTENT (1 << 15)  // Privileged
 #define DISCORD_INTENT_GUILD_SCHEDULED_EVENTS (1 << 16)
 #define DISCORD_INTENT_AUTO_MODERATION_CONFIGURATION (1 << 20)
 #define DISCORD_INTENT_AUTO_MODERATION_EXECUTION (1 << 21)
@@ -45,8 +45,8 @@
 #define DISCORD_INTENT_DIRECT_MESSAGE_POLLS (1 << 25)
 
 typedef struct {
-  const char *token;
+  const char* token;
   uint32_t intents;
 } discord_bot_config_t;
 
-void discord_bot_task(void *pvParameters);
+void discord_bot_task(void* pvParameters);
