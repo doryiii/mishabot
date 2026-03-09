@@ -215,7 +215,6 @@ static char* fetch_danbooru_risky_url(const char* tags) {
 
 
 static void handle_character_command(const char* channel_id, const char* tags) {
-  gpio_set_level(CONFIG_LED_GPIO, LED_ON);
   send_discord_typing(channel_id);
 
   ESP_LOGI(TAG, "Getting %s images", tags);
@@ -226,8 +225,6 @@ static void handle_character_command(const char* channel_id, const char* tags) {
   } else {
     ESP_LOGW(TAG, "Could not get image URL from Danbooru for %s", tags);
   }
-
-  gpio_set_level(CONFIG_LED_GPIO, LED_OFF);
 }
 
 
@@ -260,6 +257,12 @@ static void on_message(cJSON* d) {
 
   } else if (strcmp(content->valuestring, ".reisen") == 0) {
     handle_character_command(channel, "reisen_udongein_inaba");
+
+  } else if (strcmp(content->valuestring, ".ika") == 0) {
+    handle_character_command(channel, "ikamusume");
+
+  } else if (strcmp(content->valuestring, ".amber") == 0) {
+    handle_character_command(channel, "amber_%28genshin_impact%29");
 
   } else {
     cJSON* username = cJSON_GetObjectItem(author, "username");
@@ -305,6 +308,19 @@ static void handle_interaction_create(cJSON* d) {
   int int_type = type->valueint;
   ESP_LOGI(TAG, "Interaction type: %d", int_type);
 
+  cJSON* member = cJSON_GetObjectItem(d, "member");
+  cJSON* user = NULL;
+  if (member && cJSON_IsObject(member)) {
+    user = cJSON_GetObjectItem(member, "user");
+  } else {
+    user = cJSON_GetObjectItem(d, "user");
+  }
+  const char* user_id = "";
+  if (user && cJSON_IsObject(user)) {
+    cJSON* uid = cJSON_GetObjectItem(user, "id");
+    if (cJSON_IsString(uid)) user_id = uid->valuestring;
+  }
+
   if (int_type == 2) {  // APPLICATION_COMMAND
     cJSON* data = cJSON_GetObjectItem(d, "data");
     if (data) {
@@ -340,15 +356,15 @@ static void handle_interaction_create(cJSON* d) {
             "{\"type\":4,\"data\":{\"content\":\"You cast your line... %s How "
             "do you reel it "
             "in?\",\"components\":[{\"type\":1,\"components\":[{\"type\":2,"
-            "\"style\":1,\"custom_id\":\"fish_gentle_%d\",\"label\":\"Reels "
-            "gently\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_fast_%d\","
+            "\"style\":1,\"custom_id\":\"fish_gentle_%d_%s\",\"label\":\"Reels "
+            "gently\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_fast_%d_%s\","
             "\"label\":\"Reels "
             "faster\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_erratic_%"
-            "d\","
+            "d_%s\","
             "\"label\":\"Reels erratically\"},{\"type\":2,\"style\":1,"
-            "\"custom_id\":\"fish_suggestive_%d\",\"label\":\"Reels "
+            "\"custom_id\":\"fish_suggestive_%d_%s\",\"label\":\"Reels "
             "suggestively\"}]}]}}",
-            fish_events[event_id], event_id, event_id, event_id, event_id
+            fish_events[event_id], event_id, user_id, event_id, user_id, event_id, user_id, event_id, user_id
         );
         char endpoint[512];
         snprintf(
@@ -367,6 +383,25 @@ static void handle_interaction_create(cJSON* d) {
         ESP_LOGI(TAG, "Component custom_id: %s", custom_id->valuestring);
         if (strncmp(custom_id->valuestring, "fish_", 5) == 0) {
           ESP_LOGI(TAG, "Processing fish component interaction");
+
+          char action[32] = {0};
+          int event_id = 0;
+          char original_user_id[32] = {0};
+
+          if (sscanf(custom_id->valuestring, "fish_%31[^_]_%d_%31s", action, &event_id, original_user_id) != 3) {
+            ESP_LOGE(TAG, "Failed to parse custom_id: %s", custom_id->valuestring);
+            return;
+          }
+
+          if (strcmp(user_id, original_user_id) != 0) {
+            ESP_LOGW(TAG, "User %s tried to interact with fish for %s", user_id, original_user_id);
+            const char* ephemeral_msg = "{\"type\":4,\"data\":{\"content\":\"This is not your fishing line!\",\"flags\":64}}";
+            char endpoint[512];
+            snprintf(endpoint, sizeof(endpoint), "/interactions/%s/%s/callback", id->valuestring, token->valuestring);
+            discord_api_request(HTTP_METHOD_POST, endpoint, ephemeral_msg);
+            return;
+          }
+
           const char* defer_payload = "{\"type\":6}";
           char endpoint[512];
           snprintf(
@@ -375,19 +410,10 @@ static void handle_interaction_create(cJSON* d) {
           );
           discord_api_request(HTTP_METHOD_POST, endpoint, defer_payload);
 
-          bool is_suggestive =
-              (strncmp(custom_id->valuestring, "fish_suggestive", 15) == 0);
-          bool is_gentle =
-              (strncmp(custom_id->valuestring, "fish_gentle", 11) == 0);
-          bool is_fast = (strncmp(custom_id->valuestring, "fish_fast", 9) == 0);
-          bool is_erratic =
-              (strncmp(custom_id->valuestring, "fish_erratic", 12) == 0);
-
-          int event_id = 0;
-          const char* last_underscore = strrchr(custom_id->valuestring, '_');
-          if (last_underscore) {
-            event_id = atoi(last_underscore + 1);
-          }
+          bool is_suggestive = (strcmp(action, "suggestive") == 0);
+          bool is_gentle = (strcmp(action, "gentle") == 0);
+          bool is_fast = (strcmp(action, "fast") == 0);
+          bool is_erratic = (strcmp(action, "erratic") == 0);
 
           int favored_btn = event_id % 4;
           bool is_favored = false;
@@ -409,10 +435,11 @@ static void handle_interaction_create(cJSON* d) {
           if (won) {
             const char* fish_pool[] = {
                 "sangonomiya_kokomi+-comic",
-                "mualani_%28genshin_impact%29+-comic"
+                "mualani_%28genshin_impact%29+-comic",
+                "ikamusume+-comic"
             };
-            const char* fish_names[] = {"Kokomi", "Mualani"};
-            int fish_idx = esp_random() % 2;
+            const char* fish_names[] = {"Kokomi", "Mualani", "Squid"};
+            int fish_idx = esp_random() % 3;
 
             char content_buf[64];
             snprintf(
@@ -498,6 +525,8 @@ static void websocket_event_handler(
     void* handler_args, esp_event_base_t base, int32_t event_id,
     void* event_data
 ) {
+  gpio_set_level(CONFIG_LED_GPIO, LED_ON);
+
   esp_websocket_event_data_t* data = (esp_websocket_event_data_t*)event_data;
   switch (event_id) {
     case WEBSOCKET_EVENT_CONNECTED:
@@ -631,6 +660,8 @@ static void websocket_event_handler(
       ESP_LOGW(TAG, "WEBSOCKET_EVENT_ERROR");
       break;
   }
+
+  gpio_set_level(CONFIG_LED_GPIO, LED_OFF);
 }
 
 

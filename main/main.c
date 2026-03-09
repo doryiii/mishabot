@@ -23,9 +23,18 @@
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "wifi_station.h"
+#include "esp_heap_caps.h"
 
 static const char* TAG = "main";
 
+static void memory_monitor_task(void *pvParameter) {
+    while (1) {
+        ESP_LOGI("MEM", "Free: %zu | Min: %zu",
+                 heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                 heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
 
 void app_main(void) {
   // Initialize NVS
@@ -59,4 +68,5 @@ void app_main(void) {
   xTaskCreate(
       discord_bot_task, "discord_bot", 8192, (void*)&discord_cfg, 5, NULL
   );
+  // xTaskCreate(memory_monitor_task, "mem_mon", 2048, NULL, 1, NULL);
 }
