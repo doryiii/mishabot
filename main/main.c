@@ -17,23 +17,24 @@
 #include <string.h>
 
 #include "discord_bot.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "wifi_station.h"
-#include "esp_heap_caps.h"
 
 static const char* TAG = "main";
 
-static void memory_monitor_task(void *pvParameter) {
-    while (1) {
-        ESP_LOGI("MEM", "Free: %zu | Min: %zu",
-                 heap_caps_get_free_size(MALLOC_CAP_8BIT),
-                 heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
-        vTaskDelay(pdMS_TO_TICKS(2000));
-    }
+static void memory_monitor_task(void* pvParameter) {
+  while (1) {
+    ESP_LOGI(
+        "MEM", "Free: %zu | Min: %zu", heap_caps_get_free_size(MALLOC_CAP_8BIT),
+        heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)
+    );
+    vTaskDelay(pdMS_TO_TICKS(2000));
+  }
 }
 
 void app_main(void) {

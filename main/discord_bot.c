@@ -110,7 +110,7 @@ static esp_err_t discord_api_request(
   if (err == ESP_OK) {
     int status_code = esp_http_client_get_status_code(client);
     if (status_code >= 200 && status_code < 300) {
-      ESP_LOGI(TAG, "Discord API %s success (%d)", endpoint, status_code);
+      ESP_LOGD(TAG, "Discord API %s success (%d)", endpoint, status_code);
     } else {
       ESP_LOGE(TAG, "Discord API %s failed (%d)", endpoint, status_code);
       err = ESP_FAIL;
@@ -321,173 +321,197 @@ static void handle_interaction_create(cJSON* d) {
     if (cJSON_IsString(uid)) user_id = uid->valuestring;
   }
 
-  if (int_type == 2) {  // APPLICATION_COMMAND
-    cJSON* data = cJSON_GetObjectItem(d, "data");
-    if (data) {
+  cJSON* data = NULL;
+  int event_id = 0;
+  char endpoint[512];
+
+  switch (int_type) {
+    case 2:  // APPLICATION_COMMAND
+      data = cJSON_GetObjectItem(d, "data");
+      if (!data) {
+        break;
+      }
+
       cJSON* name = cJSON_GetObjectItem(data, "name");
-      if (cJSON_IsString(name) && strcmp(name->valuestring, "fish") == 0) {
-        ESP_LOGI(TAG, "Received /fish command");
-        const char* fish_events[20] = {
-            "The water ripples in the shape of a heart.",
-            "A tiny bubble floats up and pops with a 'meow'.",
-            "The bobber spins like a top.",
-            "You smell... strawberries?",
-            "The line feels strangely heavy, then light.",
-            "A spectral hand briefly grasps your line.",
-            "The water around the bobber turns neon green.",
-            "You hear a faint whispering from the depths.",
-            "The bobber suddenly sinks, then shoots into the sky!",
-            "A small vortex forms around the line.",
-            "The fish is trying to write something in the water.",
-            "A golden light shines from beneath the surface.",
-            "The bobber multiplies, then merges back into one.",
-            "You feel a tug, but the line goes sideways.",
-            "The water briefly parts, revealing a tiny treasure chest.",
-            "A melodious chime echoes across the water.",
-            "The line vibrates at a peculiar frequency.",
-            "You see a reflection of the moon, even if it's day.",
-            "The bobber turns into a tiny rubber duck.",
-            "The fish seems to be blowing bubbles."
-        };
-        int event_id = esp_random() % 20;
-        char response_payload[1024];
-        snprintf(
-            response_payload, sizeof(response_payload),
-            "{\"type\":4,\"data\":{\"content\":\"You cast your line... %s How "
-            "do you reel it "
-            "in?\",\"components\":[{\"type\":1,\"components\":[{\"type\":2,"
-            "\"style\":1,\"custom_id\":\"fish_gentle_%d_%s\",\"label\":\"Reels "
-            "gently\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_fast_%d_%s\","
-            "\"label\":\"Reels "
-            "faster\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_erratic_%"
-            "d_%s\","
-            "\"label\":\"Reels erratically\"},{\"type\":2,\"style\":1,"
-            "\"custom_id\":\"fish_suggestive_%d_%s\",\"label\":\"Reels "
-            "suggestively\"}]}]}}",
-            fish_events[event_id], event_id, user_id, event_id, user_id, event_id, user_id, event_id, user_id
+      if (!cJSON_IsString(name) || strcmp(name->valuestring, "fish") != 0) {
+        // unsupported command
+        break;
+      }
+      ESP_LOGI(TAG, "Received /fish command");
+      const char* fish_events[20] = {
+          "The water ripples in the shape of a heart.",
+          "A tiny bubble floats up and pops with a 'meow'.",
+          "The bobber spins like a top.",
+          "You smell... strawberries?",
+          "The line feels strangely heavy, then light.",
+          "A spectral hand briefly grasps your line.",
+          "The water around the bobber turns neon green.",
+          "You hear a faint whispering from the depths.",
+          "The bobber suddenly sinks, then shoots into the sky!",
+          "A small vortex forms around the line.",
+          "The fish is trying to write something in the water.",
+          "A golden light shines from beneath the surface.",
+          "The bobber multiplies, then merges back into one.",
+          "You feel a tug, but the line goes sideways.",
+          "The water briefly parts, revealing a tiny treasure chest.",
+          "A melodious chime echoes across the water.",
+          "The line vibrates at a peculiar frequency.",
+          "You see a reflection of the moon, even if it's day.",
+          "The bobber turns into a tiny rubber duck.",
+          "The fish seems to be blowing bubbles."
+      };
+      event_id = esp_random() % 20;
+      char response_payload[1024];
+      snprintf(
+          response_payload, sizeof(response_payload),
+          "{\"type\":4,\"data\":{\"content\":\"You cast your line... %s How do "
+          "you reel it "
+          "in?\",\"components\":[{\"type\":1,\"components\":[{\"type\":2,"
+          "\"style\":1,\"custom_id\":\"fish_gentle_%d_%s\",\"label\":\"Reels "
+          "gently\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_fast_%d_%s\","
+          "\"label\":\"Reels "
+          "faster\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_erratic_%d_%"
+          "s\",\"label\":\"Reels "
+          "erratically\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_"
+          "suggestive_%d_%s\",\"label\":\"Reels suggestively\"}]}]}}",
+          fish_events[event_id], event_id, user_id, event_id, user_id, event_id,
+          user_id, event_id, user_id
+      );
+      snprintf(
+          endpoint, sizeof(endpoint), "/interactions/%s/%s/callback",
+          id->valuestring, token->valuestring
+      );
+      discord_api_request(HTTP_METHOD_POST, endpoint, response_payload);
+      break;
+
+    case 3:  // MESSAGE_COMPONENT
+      ESP_LOGI(TAG, "Received MESSAGE_COMPONENT interaction");
+      data = cJSON_GetObjectItem(d, "data");
+      if (!data) {
+        ESP_LOGE(TAG, "Interaction missing data object");
+        break;
+      }
+
+      cJSON* custom_id = cJSON_GetObjectItem(data, "custom_id");
+      if (!cJSON_IsString(custom_id)) {
+        ESP_LOGE(TAG, "custom_id missing or not a string");
+        break;
+      }
+
+      ESP_LOGI(TAG, "Component custom_id: %s", custom_id->valuestring);
+      if (strncmp(custom_id->valuestring, "fish_", 5) != 0) {
+        ESP_LOGW(TAG, "unrecognized custom_id: %s", custom_id->valuestring);
+        break;
+      }
+
+      ESP_LOGI(TAG, "Processing fish component interaction");
+
+      char action[32] = {0};
+      event_id = 0;
+      char original_user_id[32] = {0};
+
+      if (sscanf(
+              custom_id->valuestring, "fish_%31[^_]_%d_%31s", action, &event_id,
+              original_user_id
+          ) != 3) {
+        ESP_LOGE(TAG, "Failed to parse custom_id: %s", custom_id->valuestring);
+        return;
+      }
+
+      if (strcmp(user_id, original_user_id) != 0) {
+        ESP_LOGW(
+            TAG, "User %s tried to interact with fish for %s", user_id,
+            original_user_id
         );
-        char endpoint[512];
+        const char* ephemeral_msg =
+            "{\"type\":4,\"data\":{\"content\":\"This is not your fishing "
+            "line!\",\"flags\":64}}";
         snprintf(
             endpoint, sizeof(endpoint), "/interactions/%s/%s/callback",
             id->valuestring, token->valuestring
         );
-        discord_api_request(HTTP_METHOD_POST, endpoint, response_payload);
+        discord_api_request(HTTP_METHOD_POST, endpoint, ephemeral_msg);
+        return;
       }
-    }
-  } else if (int_type == 3) {  // MESSAGE_COMPONENT
-    ESP_LOGI(TAG, "Received MESSAGE_COMPONENT interaction");
-    cJSON* data = cJSON_GetObjectItem(d, "data");
-    if (data) {
-      cJSON* custom_id = cJSON_GetObjectItem(data, "custom_id");
-      if (cJSON_IsString(custom_id)) {
-        ESP_LOGI(TAG, "Component custom_id: %s", custom_id->valuestring);
-        if (strncmp(custom_id->valuestring, "fish_", 5) == 0) {
-          ESP_LOGI(TAG, "Processing fish component interaction");
 
-          char action[32] = {0};
-          int event_id = 0;
-          char original_user_id[32] = {0};
+      const char* defer_payload = "{\"type\":6}";
+      char endpoint[512];
+      snprintf(
+          endpoint, sizeof(endpoint), "/interactions/%s/%s/callback",
+          id->valuestring, token->valuestring
+      );
+      discord_api_request(HTTP_METHOD_POST, endpoint, defer_payload);
 
-          if (sscanf(custom_id->valuestring, "fish_%31[^_]_%d_%31s", action, &event_id, original_user_id) != 3) {
-            ESP_LOGE(TAG, "Failed to parse custom_id: %s", custom_id->valuestring);
-            return;
-          }
+      bool is_suggestive = (strcmp(action, "suggestive") == 0);
+      bool is_gentle = (strcmp(action, "gentle") == 0);
+      bool is_fast = (strcmp(action, "fast") == 0);
+      bool is_erratic = (strcmp(action, "erratic") == 0);
 
-          if (strcmp(user_id, original_user_id) != 0) {
-            ESP_LOGW(TAG, "User %s tried to interact with fish for %s", user_id, original_user_id);
-            const char* ephemeral_msg = "{\"type\":4,\"data\":{\"content\":\"This is not your fishing line!\",\"flags\":64}}";
-            char endpoint[512];
-            snprintf(endpoint, sizeof(endpoint), "/interactions/%s/%s/callback", id->valuestring, token->valuestring);
-            discord_api_request(HTTP_METHOD_POST, endpoint, ephemeral_msg);
-            return;
-          }
+      int favored_btn = event_id % 4;
+      bool is_favored = false;
+      if (is_gentle && favored_btn == 0) is_favored = true;
+      if (is_fast && favored_btn == 1) is_favored = true;
+      if (is_erratic && favored_btn == 2) is_favored = true;
+      if (is_suggestive && favored_btn == 3) is_favored = true;
 
-          const char* defer_payload = "{\"type\":6}";
-          char endpoint[512];
-          snprintf(
-              endpoint, sizeof(endpoint), "/interactions/%s/%s/callback",
-              id->valuestring, token->valuestring
-          );
-          discord_api_request(HTTP_METHOD_POST, endpoint, defer_payload);
+      int win_chance = is_suggestive ? 33 : 50;
+      if (is_favored) {
+        win_chance += 15;
+      }
+      int rand_val = esp_random() % 100;
+      bool won = (rand_val < win_chance);
 
-          bool is_suggestive = (strcmp(action, "suggestive") == 0);
-          bool is_gentle = (strcmp(action, "gentle") == 0);
-          bool is_fast = (strcmp(action, "fast") == 0);
-          bool is_erratic = (strcmp(action, "erratic") == 0);
+      cJSON* patch_data = cJSON_CreateObject();
+      cJSON_AddArrayToObject(patch_data, "components");
 
-          int favored_btn = event_id % 4;
-          bool is_favored = false;
-          if (is_gentle && favored_btn == 0) is_favored = true;
-          if (is_fast && favored_btn == 1) is_favored = true;
-          if (is_erratic && favored_btn == 2) is_favored = true;
-          if (is_suggestive && favored_btn == 3) is_favored = true;
+      if (won) {
+        const char* fish_pool[] = {
+            "sangonomiya_kokomi+-comic", "mualani_%28genshin_impact%29+-comic",
+            "ikamusume+-comic"
+        };
+        const char* fish_names[] = {"Kokomi", "Mualani", "Squid"};
+        int fish_idx = esp_random() % 3;
 
-          int win_chance = is_suggestive ? 33 : 50;
-          if (is_favored) {
-            win_chance += 15;
-          }
-          int rand_val = esp_random() % 100;
-          bool won = (rand_val < win_chance);
+        char content_buf[64];
+        snprintf(
+            content_buf, sizeof(content_buf), "You caught a %s!",
+            fish_names[fish_idx]
+        );
+        cJSON_AddStringToObject(patch_data, "content", content_buf);
 
-          cJSON* patch_data = cJSON_CreateObject();
-          cJSON_AddArrayToObject(patch_data, "components");
-
-          if (won) {
-            const char* fish_pool[] = {
-                "sangonomiya_kokomi+-comic",
-                "mualani_%28genshin_impact%29+-comic",
-                "ikamusume+-comic"
-            };
-            const char* fish_names[] = {"Kokomi", "Mualani", "Squid"};
-            int fish_idx = esp_random() % 3;
-
-            char content_buf[64];
-            snprintf(
-                content_buf, sizeof(content_buf), "You caught a %s!",
-                fish_names[fish_idx]
-            );
-            cJSON_AddStringToObject(patch_data, "content", content_buf);
-
-            char* image_url =
-                is_suggestive ? fetch_danbooru_risky_url(fish_pool[fish_idx])
+        char* image_url = is_suggestive
+                              ? fetch_danbooru_risky_url(fish_pool[fish_idx])
                               : fetch_danbooru_safe_url(fish_pool[fish_idx]);
-            if (image_url) {
-              cJSON* embeds = cJSON_CreateArray();
-              cJSON* embed = cJSON_CreateObject();
-              cJSON* image = cJSON_CreateObject();
-              cJSON_AddStringToObject(image, "url", image_url);
-              cJSON_AddItemToObject(embed, "image", image);
-              cJSON_AddItemToArray(embeds, embed);
-              cJSON_AddItemToObject(patch_data, "embeds", embeds);
-              free(image_url);
-            }
-          } else {
-            cJSON_AddStringToObject(
-                patch_data, "content", "The fish got away..."
-            );
-          }
-
-          char* patch_str = cJSON_PrintUnformatted(patch_data);
-          if (global_app_id[0] != '\0' && patch_str) {
-            char webhook_endpoint[512];
-            snprintf(
-                webhook_endpoint, sizeof(webhook_endpoint),
-                "/webhooks/%s/%s/messages/@original", global_app_id,
-                token->valuestring
-            );
-            discord_api_request(HTTP_METHOD_PATCH, webhook_endpoint, patch_str);
-          } else if (global_app_id[0] == '\0') {
-            ESP_LOGE(TAG, "global_app_id is empty!");
-          }
-          if (patch_str) free(patch_str);
-          cJSON_Delete(patch_data);
+        if (image_url) {
+          cJSON* embeds = cJSON_CreateArray();
+          cJSON* embed = cJSON_CreateObject();
+          cJSON* image = cJSON_CreateObject();
+          cJSON_AddStringToObject(image, "url", image_url);
+          cJSON_AddItemToObject(embed, "image", image);
+          cJSON_AddItemToArray(embeds, embed);
+          cJSON_AddItemToObject(patch_data, "embeds", embeds);
+          free(image_url);
         }
       } else {
-        ESP_LOGE(TAG, "custom_id missing or not a string");
+        cJSON_AddStringToObject(patch_data, "content", "The fish got away...");
       }
-    } else {
-      ESP_LOGE(TAG, "Interaction missing data object");
-    }
+
+      char* patch_str = cJSON_PrintUnformatted(patch_data);
+      if (global_app_id[0] != '\0' && patch_str) {
+        char webhook_endpoint[512];
+        snprintf(
+            webhook_endpoint, sizeof(webhook_endpoint),
+            "/webhooks/%s/%s/messages/@original", global_app_id,
+            token->valuestring
+        );
+        discord_api_request(HTTP_METHOD_PATCH, webhook_endpoint, patch_str);
+      } else if (global_app_id[0] == '\0') {
+        ESP_LOGE(TAG, "global_app_id is empty!");
+      }
+
+      if (patch_str) free(patch_str);
+      cJSON_Delete(patch_data);
+      break;
   }
 }
 
@@ -569,11 +593,7 @@ static void websocket_event_handler(
 
       if (!ws_rx_buffer ||
           (data->payload_offset + data->data_len > data->payload_len)) {
-        ESP_LOGW(
-            TAG, "ws_rx_buffer=%d, payload_offset+data_len=%d, payload_len=%d",
-            ws_rx_buffer, data->payload_offset + data->data_len,
-            data->payload_len
-        );
+        // no buffer or incomplete data; wait for more packets
         break;
       }
       memcpy(
@@ -590,67 +610,71 @@ static void websocket_event_handler(
       cJSON* root = cJSON_Parse(ws_rx_buffer);
       if (!root) {
         ESP_LOGW(TAG, "Failed to parse JSON. Payload length: %d", ws_rx_len);
-      } else {
-        cJSON* op = cJSON_GetObjectItem(root, "op");
-        cJSON* s = cJSON_GetObjectItem(root, "s");
-        cJSON* t = cJSON_GetObjectItem(root, "t");
-        cJSON* d = cJSON_GetObjectItem(root, "d");
+        goto cleanup_ws_rx_buffer;
+      }
 
-        if (cJSON_IsNumber(s)) {
-          last_seq_num = s->valueint;
-        }
+      cJSON* op = cJSON_GetObjectItem(root, "op");
+      cJSON* s = cJSON_GetObjectItem(root, "s");
+      cJSON* t = cJSON_GetObjectItem(root, "t");
+      cJSON* d = cJSON_GetObjectItem(root, "d");
 
-        if (!cJSON_IsNumber(op)) {
-          ESP_LOGW(TAG, "opcode is not number");
-        } else {
-          int opcode = op->valueint;
-          if (opcode == 10) {  // Hello
-            if (d && cJSON_IsObject(d)) {
-              cJSON* interval = cJSON_GetObjectItem(d, "heartbeat_interval");
-              if (cJSON_IsNumber(interval)) {
-                heartbeat_interval_ms = interval->valueint;
-                ESP_LOGI(
-                    TAG, "Received Hello, heartbeat interval: %d ms",
-                    heartbeat_interval_ms
-                );
+      if (cJSON_IsNumber(s)) {
+        last_seq_num = s->valueint;
+      }
 
-                xTaskCreate(
-                    heartbeat_task, "heartbeat_task", 4096, NULL, 5,
-                    &heartbeat_task_handle
-                );
+      if (!cJSON_IsNumber(op)) {
+        ESP_LOGW(TAG, "opcode is not number");
+        goto cleanup_rootjson;
+      }
 
-                discord_send_identify(ws_client);
-              }
-            }
-          } else if (opcode == 11) {  // Heartbeat ACK
-            ESP_LOGD(TAG, "Received Heartbeat ACK");
-          } else if (opcode == 0) {  // Dispatch
-            if (cJSON_IsString(t)) {
-              ESP_LOGD(TAG, "Received Dispatch Event: %s", t->valuestring);
-              if (strcmp(t->valuestring, "READY") == 0) {
-                ESP_LOGI(TAG, "Discord Bot is READY!");
-                cJSON* app = cJSON_GetObjectItem(d, "application");
-                if (app) {
-                  cJSON* app_id = cJSON_GetObjectItem(app, "id");
-                  if (cJSON_IsString(app_id)) {
-                    strncpy(
-                        global_app_id, app_id->valuestring,
-                        sizeof(global_app_id) - 1
-                    );
-                    global_app_id[sizeof(global_app_id) - 1] = '\0';
-                    register_slash_commands(global_app_id);
-                  }
-                }
-              } else if (strcmp(t->valuestring, "MESSAGE_CREATE") == 0) {
-                on_message(d);
-              } else if (strcmp(t->valuestring, "INTERACTION_CREATE") == 0) {
-                handle_interaction_create(d);
-              }
-            }
+      int opcode = op->valueint;
+      if (opcode == 10) {  // Hello
+        if (d && cJSON_IsObject(d)) {
+          cJSON* interval = cJSON_GetObjectItem(d, "heartbeat_interval");
+          if (cJSON_IsNumber(interval)) {
+            heartbeat_interval_ms = interval->valueint;
+            ESP_LOGI(
+                TAG, "Received Hello, heartbeat interval: %d ms",
+                heartbeat_interval_ms
+            );
+
+            xTaskCreate(
+                heartbeat_task, "heartbeat_task", 4096, NULL, 5,
+                &heartbeat_task_handle
+            );
+
+            discord_send_identify(ws_client);
           }
         }
-        cJSON_Delete(root);
+      } else if (opcode == 11) {  // Heartbeat ACK
+        ESP_LOGD(TAG, "Received Heartbeat ACK");
+      } else if (opcode == 0) {  // Dispatch
+        if (cJSON_IsString(t)) {
+          ESP_LOGD(TAG, "Received Dispatch Event: %s", t->valuestring);
+          if (strcmp(t->valuestring, "READY") == 0) {
+            ESP_LOGI(TAG, "Discord Bot is READY!");
+            cJSON* app = cJSON_GetObjectItem(d, "application");
+            if (app) {
+              cJSON* app_id = cJSON_GetObjectItem(app, "id");
+              if (cJSON_IsString(app_id)) {
+                strncpy(
+                    global_app_id, app_id->valuestring,
+                    sizeof(global_app_id) - 1
+                );
+                global_app_id[sizeof(global_app_id) - 1] = '\0';
+                register_slash_commands(global_app_id);
+              }
+            }
+          } else if (strcmp(t->valuestring, "MESSAGE_CREATE") == 0) {
+            on_message(d);
+          } else if (strcmp(t->valuestring, "INTERACTION_CREATE") == 0) {
+            handle_interaction_create(d);
+          }
+        }
       }
+    cleanup_rootjson:
+      cJSON_Delete(root);
+    cleanup_ws_rx_buffer:
       free(ws_rx_buffer);
       ws_rx_buffer = NULL;
       ws_rx_len = 0;
