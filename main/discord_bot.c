@@ -206,118 +206,46 @@ static void heartbeat_task(void* pvParameters) {
 }
 
 
+typedef struct {
+  char* username;
+  char* content;
+  char* channel;
+} msg_task_arg_t;
+
 static void message_task(void* pvParameters) {
-  cJSON* d = (cJSON*)pvParameters;
-  if (!d) {
-    vTaskDelete(NULL);
-  }
-
-  cJSON* author = cJSON_GetObjectItem(d, "author");
-  if (!author || !cJSON_IsObject(author)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-
-  cJSON* username = cJSON_GetObjectItem(author, "username");
-  if (!username || !cJSON_IsString(username)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-
-  cJSON* is_bot = cJSON_GetObjectItem(author, "bot");
-  if (cJSON_IsTrue(is_bot)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-
-  cJSON* content = cJSON_GetObjectItem(d, "content");
-  if (!cJSON_IsString(content)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-
-  cJSON* channel_id = cJSON_GetObjectItem(d, "channel_id");
-  if (!cJSON_IsString(channel_id)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-
-  char* username_str = strdup(username->valuestring);
-  char* content_str = strdup(content->valuestring);
-  char* channel = strdup(channel_id->valuestring);
-  cJSON_Delete(d);
-
-  on_message(username_str, content_str, channel);
-
-  free(username_str);
-  free(content_str);
-  free(channel);
+  msg_task_arg_t* arg = (msg_task_arg_t*)pvParameters;
+  on_message(arg->username, arg->content, arg->channel);
+  free(arg->username);
+  free(arg->content);
+  free(arg->channel);
+  free(arg);
   vTaskDelete(NULL);
 }
 
+typedef struct {
+  int type;
+  char* id;
+  char* token;
+  char* user_id;
+  char* cmd_name;
+  char* custom_id;
+} int_task_arg_t;
 
 static void interaction_task(void* pvParameters) {
-  cJSON* d = (cJSON*)pvParameters;
-  if (!d) {
-    vTaskDelete(NULL);
+  int_task_arg_t* arg = (int_task_arg_t*)pvParameters;
+  if (arg->type == 2 && arg->cmd_name) {  // APPLICATION_COMMAND
+    on_interaction_cmd(arg->id, arg->token, arg->cmd_name, arg->user_id);
+  } else if (arg->type == 3 && arg->custom_id) {  // MESSAGE_COMPONENT
+    on_interaction_action(
+        global_app_id, arg->id, arg->token, arg->custom_id, arg->user_id
+    );
   }
-
-  cJSON* type_item = cJSON_GetObjectItem(d, "type");
-  if (!cJSON_IsNumber(type_item)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-
-  cJSON* id_item = cJSON_GetObjectItem(d, "id");
-  cJSON* token_item = cJSON_GetObjectItem(d, "token");
-  if (!cJSON_IsString(id_item) || !cJSON_IsString(token_item)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-
-  cJSON* member = cJSON_GetObjectItem(d, "member");
-  cJSON* user = (member && cJSON_IsObject(member))
-                    ? cJSON_GetObjectItem(member, "user")
-                    : cJSON_GetObjectItem(d, "user");
-  if (!user || !cJSON_IsObject(user)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-  cJSON* uid = cJSON_GetObjectItem(user, "id");
-  if (!cJSON_IsString(uid)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-
-  cJSON* data = cJSON_GetObjectItem(d, "data");
-  if (!data || !cJSON_IsObject(data)) {
-    cJSON_Delete(d);
-    vTaskDelete(NULL);
-  }
-
-  int int_type = type_item->valueint;
-  char* user_id = strdup(uid->valuestring);
-  char* id = strdup(id_item->valuestring);
-  char* token = strdup(token_item->valuestring);
-  char* cmd_name = NULL;
-  char* custom_id = NULL;
-  cJSON* name_item = cJSON_GetObjectItem(data, "name");
-  if (cJSON_IsString(name_item)) cmd_name = strdup(name_item->valuestring);
-  cJSON* cid_item = cJSON_GetObjectItem(data, "custom_id");
-  if (cJSON_IsString(cid_item)) custom_id = strdup(cid_item->valuestring);
-
-  cJSON_Delete(d);
-
-  if (int_type == 2 && cmd_name) {  // APPLICATION_COMMAND
-    on_interaction_cmd(id, token, cmd_name, user_id);
-  } else if (int_type == 3 && custom_id) {  // MESSAGE_COMPONENT
-    on_interaction_action(global_app_id, id, token, custom_id, user_id);
-  }
-  free(id);
-  free(token);
-  free(user_id);
-  if (cmd_name) free(cmd_name);
-  if (custom_id) free(custom_id);
+  free(arg->id);
+  free(arg->token);
+  free(arg->user_id);
+  if (arg->cmd_name) free(arg->cmd_name);
+  if (arg->custom_id) free(arg->custom_id);
+  free(arg);
   vTaskDelete(NULL);
 }
 
@@ -446,16 +374,60 @@ static void websocket_event_handler(
               }
             }
           } else if (strcmp(t->valuestring, "MESSAGE_CREATE") == 0) {
-            cJSON* msg_dup = cJSON_Duplicate(d, 1);
-            if (msg_dup) {
-              xTaskCreate(message_task, "message_task", 8192, msg_dup, 5, NULL);
+            cJSON* author = cJSON_GetObjectItem(d, "author");
+            if (author) {
+              cJSON* is_bot = cJSON_GetObjectItem(author, "bot");
+              if (!cJSON_IsTrue(is_bot)) {
+                cJSON* username = cJSON_GetObjectItem(author, "username");
+                cJSON* content = cJSON_GetObjectItem(d, "content");
+                cJSON* channel_id = cJSON_GetObjectItem(d, "channel_id");
+
+                if (cJSON_IsString(username) && cJSON_IsString(content) &&
+                    cJSON_IsString(channel_id)) {
+                  msg_task_arg_t* arg = malloc(sizeof(msg_task_arg_t));
+                  if (arg) {
+                    arg->username = strdup(username->valuestring);
+                    arg->content = strdup(content->valuestring);
+                    arg->channel = strdup(channel_id->valuestring);
+                    xTaskCreate(
+                        message_task, "message_task", 6144, arg, 5, NULL
+                    );
+                  }
+                }
+              }
             }
           } else if (strcmp(t->valuestring, "INTERACTION_CREATE") == 0) {
-            cJSON* interaction_dup = cJSON_Duplicate(d, 1);
-            if (interaction_dup) {
-              xTaskCreate(
-                  interaction_task, "int_task", 8192, interaction_dup, 5, NULL
-              );
+            cJSON* type_item = cJSON_GetObjectItem(d, "type");
+            cJSON* id_item = cJSON_GetObjectItem(d, "id");
+            cJSON* token_item = cJSON_GetObjectItem(d, "token");
+
+            cJSON* member = cJSON_GetObjectItem(d, "member");
+            cJSON* user = (member && cJSON_IsObject(member))
+                              ? cJSON_GetObjectItem(member, "user")
+                              : cJSON_GetObjectItem(d, "user");
+            cJSON* uid = user ? cJSON_GetObjectItem(user, "id") : NULL;
+
+            if (cJSON_IsNumber(type_item) && cJSON_IsString(id_item) &&
+                cJSON_IsString(token_item) && cJSON_IsString(uid)) {
+              int_task_arg_t* arg = calloc(1, sizeof(int_task_arg_t));
+              if (arg) {
+                arg->type = type_item->valueint;
+                arg->id = strdup(id_item->valuestring);
+                arg->token = strdup(token_item->valuestring);
+                arg->user_id = strdup(uid->valuestring);
+
+                cJSON* data = cJSON_GetObjectItem(d, "data");
+                if (data && cJSON_IsObject(data)) {
+                  cJSON* name_item = cJSON_GetObjectItem(data, "name");
+                  if (cJSON_IsString(name_item))
+                    arg->cmd_name = strdup(name_item->valuestring);
+
+                  cJSON* cid_item = cJSON_GetObjectItem(data, "custom_id");
+                  if (cJSON_IsString(cid_item))
+                    arg->custom_id = strdup(cid_item->valuestring);
+                }
+                xTaskCreate(interaction_task, "int_task", 6144, arg, 5, NULL);
+              }
             }
           }
         }
@@ -512,6 +484,6 @@ void discord_bot_task(void* pvParameters) {
 
   while (1) {
     // we need to keep the structs alive for the websocket task
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(10000));
   }
 }

@@ -18,13 +18,9 @@ static const char* TAG = "misha_bot";
 
 static char* fetch_danbooru(const char* tags, const char* filter) {
   char* image_url = NULL;
-  // TODO: handle http chunks to avoid allocating max buf every time
-  const int buffer_size = 12288;
-  char* buffer = malloc(buffer_size);
-  if (!buffer) return NULL;
 
   char url[256];
-  snprintf(url, sizeof(url), "%s%s+%s-animated", DANBOORU_BASE, tags, filter);
+  snprintf(url, sizeof(url), "%s%s+%s+-animated", DANBOORU_BASE, tags, filter);
 
   esp_http_client_config_t config = {
       .url = url,
@@ -36,25 +32,51 @@ static char* fetch_danbooru(const char* tags, const char* filter) {
   esp_err_t err = esp_http_client_open(client, 0);
   if (err == ESP_OK) {
     esp_http_client_fetch_headers(client);
-    int len = esp_http_client_read(client, buffer, buffer_size - 1);
-    if (len > 0) {
-      buffer[len] = '\0';
-      ESP_LOGI(TAG, "Danbooru response received: %d bytes", len);
-      cJSON* root = cJSON_Parse(buffer);
-      if (root) {
-        cJSON* file_url = cJSON_GetObjectItem(root, "file_url");
-        if (cJSON_IsString(file_url)) {
-          image_url = strdup(file_url->valuestring);
+
+    int content_length = esp_http_client_get_content_length(client);
+    int total_read = 0;
+    int buffer_size = content_length > 0 ? content_length + 1 : 2048;
+    char* buf = malloc(buffer_size);
+
+    if (buf) {
+      while (1) {
+        if (content_length <= 0 && total_read == buffer_size - 1) {
+          buffer_size += 1024;
+          char* new_buf = realloc(buf, buffer_size);
+          if (!new_buf) {
+            ESP_LOGE(TAG, "Failed to reallocate buffer");
+            break;
+          }
+          buf = new_buf;
         }
-        cJSON_Delete(root);
+
+        int to_read = buffer_size - 1 - total_read;
+        int read_len = esp_http_client_read(client, buf + total_read, to_read);
+        if (read_len <= 0) {
+          break;
+        }
+        total_read += read_len;
       }
+
+      buf[total_read] = '\0';
+      if (total_read > 0) {
+        ESP_LOGI(TAG, "Danbooru response received: %d bytes", total_read);
+        cJSON* root = cJSON_Parse(buf);
+        if (root) {
+          cJSON* file_url = cJSON_GetObjectItem(root, "file_url");
+          if (cJSON_IsString(file_url)) {
+            image_url = strdup(file_url->valuestring);
+          }
+          cJSON_Delete(root);
+        }
+      }
+      free(buf);
     }
   } else {
     ESP_LOGE(TAG, "Failed to fetch from Danbooru: %s", esp_err_to_name(err));
   }
 
   esp_http_client_cleanup(client);
-  free(buffer);
   ESP_LOGI(TAG, "image: %s", image_url);
   return image_url;
 }
@@ -206,9 +228,10 @@ void on_interaction_action(
         cJSON_AddArrayToObject(patch, "components");
         if (won) {
           const char* pool[] = {
-              "sangonomiya_kokomi+-comic",
-              "mualani_%28genshin_impact%29+-comic", "ikamusume+-comic",
-              "gawr_gura+-comic", "sameko_saba+-comic"
+              "sangonomiya_kokomi+-comic+-everyone",
+              "mualani_%28genshin_impact%29+-comic+-everyone",
+              "ikamusume+-comic+-everyone", "gawr_gura+-comic+-everyone",
+              "sameko_saba+-comic+-everyone"
           };
           const char* names[] = {
               "Kokomi", "Mualani", "squid", "shark", "mackerel"
