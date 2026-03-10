@@ -46,7 +46,7 @@ static TaskHandle_t heartbeat_task_handle = NULL;
 static discord_bot_config_t* bot_config = NULL;
 static char global_app_id[32] = {0};
 
-#define DANBOORU_API_BASE                                                     \
+#define DANBOORU_BASE                                                         \
   "https://danbooru.donmai.us/posts/random.json?login=" CONFIG_DANBOORU_LOGIN \
   "&api_key=" CONFIG_DANBOORU_API_KEY "&tags="
 
@@ -160,7 +160,7 @@ static void send_discord_image_embed(
 }
 
 
-static char* fetch_danbooru_url(const char* tags, const char* filter) {
+static char* fetch_danbooru(const char* tags, const char* filter) {
   char* image_url = NULL;
   // TODO: handle http chunks to avoid allocating max buf every time
   const int buffer_size = 12288;
@@ -168,7 +168,7 @@ static char* fetch_danbooru_url(const char* tags, const char* filter) {
   if (!buffer) return NULL;
 
   char url[256];
-  snprintf(url, sizeof(url), "%s%s+%s", DANBOORU_API_BASE, tags, filter);
+  snprintf(url, sizeof(url), "%s%s+%s-animated", DANBOORU_BASE, tags, filter);
 
   esp_http_client_config_t config = {
       .url = url,
@@ -204,13 +204,13 @@ static char* fetch_danbooru_url(const char* tags, const char* filter) {
 }
 
 
-static char* fetch_danbooru_safe_url(const char* tags) {
-  return fetch_danbooru_url(tags, "rating%3Ageneral");
+static char* fetch_danbooru_safe_img(const char* tags) {
+  return fetch_danbooru(tags, "rating%3Ageneral");
 }
 
 
-static char* fetch_danbooru_risky_url(const char* tags) {
-  return fetch_danbooru_url(tags, "rating%3Asafe");
+static char* fetch_danbooru_risky_img(const char* tags) {
+  return fetch_danbooru(tags, "rating%3Asafe");
 }
 
 
@@ -218,7 +218,7 @@ static void handle_character_command(const char* channel_id, const char* tags) {
   send_discord_typing(channel_id);
 
   ESP_LOGI(TAG, "Getting %s images", tags);
-  char* image_url = fetch_danbooru_safe_url(tags);
+  char* image_url = fetch_danbooru_safe_img(tags);
   if (image_url) {
     send_discord_image_embed(channel_id, image_url);
     free(image_url);
@@ -263,6 +263,9 @@ static void on_message(cJSON* d) {
 
   } else if (strcmp(content->valuestring, ".amber") == 0) {
     handle_character_command(channel, "amber_%28genshin_impact%29");
+
+  } else if (strcmp(content->valuestring, ".venti") == 0) {
+    handle_character_command(channel, "venti_%28genshin_impact%29");
 
   } else {
     cJSON* username = cJSON_GetObjectItem(author, "username");
@@ -454,7 +457,7 @@ static void handle_interaction_create(cJSON* d) {
       if (is_erratic && favored_btn == 2) is_favored = true;
       if (is_suggestive && favored_btn == 3) is_favored = true;
 
-      int win_chance = is_suggestive ? 33 : 50;
+      int win_chance = is_suggestive ? 30 : 50;
       if (is_favored) {
         win_chance += 15;
       }
@@ -467,10 +470,12 @@ static void handle_interaction_create(cJSON* d) {
       if (won) {
         const char* fish_pool[] = {
             "sangonomiya_kokomi+-comic", "mualani_%28genshin_impact%29+-comic",
-            "ikamusume+-comic"
+            "ikamusume+-comic", "gawr_gura+-comic", "sameko_saba+-comic"
         };
-        const char* fish_names[] = {"Kokomi", "Mualani", "Squid"};
-        int fish_idx = esp_random() % 3;
+        const char* fish_names[] = {
+            "Kokomi", "Mualani", "squid", "shark", "mackerel"
+        };
+        int fish_idx = esp_random() % 5;
 
         char content_buf[64];
         snprintf(
@@ -480,8 +485,8 @@ static void handle_interaction_create(cJSON* d) {
         cJSON_AddStringToObject(patch_data, "content", content_buf);
 
         char* image_url = is_suggestive
-                              ? fetch_danbooru_risky_url(fish_pool[fish_idx])
-                              : fetch_danbooru_safe_url(fish_pool[fish_idx]);
+                              ? fetch_danbooru_risky_img(fish_pool[fish_idx])
+                              : fetch_danbooru_safe_img(fish_pool[fish_idx]);
         if (image_url) {
           cJSON* embeds = cJSON_CreateArray();
           cJSON* embed = cJSON_CreateObject();
