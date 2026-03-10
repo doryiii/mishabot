@@ -228,54 +228,6 @@ static void handle_character_command(const char* channel_id, const char* tags) {
 }
 
 
-static void on_message(cJSON* d) {
-  cJSON* author = cJSON_GetObjectItem(d, "author");
-  if (!author || !cJSON_IsObject(author)) return;
-
-  cJSON* is_bot = cJSON_GetObjectItem(author, "bot");
-  if (cJSON_IsTrue(is_bot)) return;
-
-  cJSON* content = cJSON_GetObjectItem(d, "content");
-  if (!cJSON_IsString(content)) return;
-
-  cJSON* channel_id = cJSON_GetObjectItem(d, "channel_id");
-  if (!cJSON_IsString(channel_id)) return;
-  const char* channel = channel_id->valuestring;
-
-  if (strcmp(content->valuestring, ".misha") == 0) {
-    ESP_LOGI(TAG, ".misha");
-    handle_character_command(channel, "misha_%28honkai%3A_star_rail%29");
-
-  } else if (strcmp(content->valuestring, ".furina") == 0) {
-    handle_character_command(channel, "furina_%28genshin_impact%29");
-
-  } else if (strcmp(content->valuestring, ".karen") == 0) {
-    handle_character_command(channel, "kujou_karen");
-
-  } else if (strcmp(content->valuestring, ".kokomi") == 0) {
-    handle_character_command(channel, "sangonomiya_kokomi");
-
-  } else if (strcmp(content->valuestring, ".reisen") == 0) {
-    handle_character_command(channel, "reisen_udongein_inaba");
-
-  } else if (strcmp(content->valuestring, ".ika") == 0) {
-    handle_character_command(channel, "ikamusume");
-
-  } else if (strcmp(content->valuestring, ".amber") == 0) {
-    handle_character_command(channel, "amber_%28genshin_impact%29");
-
-  } else if (strcmp(content->valuestring, ".venti") == 0) {
-    handle_character_command(channel, "venti_%28genshin_impact%29");
-
-  } else {
-    cJSON* username = cJSON_GetObjectItem(author, "username");
-    if (cJSON_IsString(username)) {
-      ESP_LOGV(TAG, "[%s]: %s", username->valuestring, content->valuestring);
-    }
-  }
-}
-
-
 static void register_slash_commands(const char* app_id) {
   cJSON* root = cJSON_CreateObject();
   cJSON_AddStringToObject(root, "name", "fish");
@@ -290,234 +242,6 @@ static void register_slash_commands(const char* app_id) {
     free(payload);
   }
   cJSON_Delete(root);
-}
-
-
-static void handle_interaction_create(cJSON* d) {
-  ESP_LOGI(TAG, "Handling INTERACTION_CREATE");
-  cJSON* type = cJSON_GetObjectItem(d, "type");
-  if (!cJSON_IsNumber(type)) {
-    ESP_LOGE(TAG, "Interaction missing type or not a number");
-    return;
-  }
-
-  cJSON* id = cJSON_GetObjectItem(d, "id");
-  cJSON* token = cJSON_GetObjectItem(d, "token");
-  if (!cJSON_IsString(id) || !cJSON_IsString(token)) {
-    ESP_LOGE(TAG, "Interaction missing id or token");
-    return;
-  }
-
-  int int_type = type->valueint;
-  ESP_LOGI(TAG, "Interaction type: %d", int_type);
-
-  cJSON* member = cJSON_GetObjectItem(d, "member");
-  cJSON* user = NULL;
-  if (member && cJSON_IsObject(member)) {
-    user = cJSON_GetObjectItem(member, "user");
-  } else {
-    user = cJSON_GetObjectItem(d, "user");
-  }
-  const char* user_id = "";
-  if (user && cJSON_IsObject(user)) {
-    cJSON* uid = cJSON_GetObjectItem(user, "id");
-    if (cJSON_IsString(uid)) user_id = uid->valuestring;
-  }
-
-  cJSON* data = NULL;
-  int event_id = 0;
-  char endpoint[512];
-
-  switch (int_type) {
-    case 2:  // APPLICATION_COMMAND
-      data = cJSON_GetObjectItem(d, "data");
-      if (!data) {
-        break;
-      }
-
-      cJSON* name = cJSON_GetObjectItem(data, "name");
-      if (!cJSON_IsString(name) || strcmp(name->valuestring, "fish") != 0) {
-        // unsupported command
-        break;
-      }
-      ESP_LOGI(TAG, "Received /fish command");
-      const char* fish_events[20] = {
-          "The water ripples in the shape of a heart.",
-          "A tiny bubble floats up and pops with a 'meow'.",
-          "The bobber spins like a top.",
-          "You smell... strawberries?",
-          "The line feels strangely heavy, then light.",
-          "A spectral hand briefly grasps your line.",
-          "The water around the bobber turns neon green.",
-          "You hear a faint whispering from the depths.",
-          "The bobber suddenly sinks, then shoots into the sky!",
-          "A small vortex forms around the line.",
-          "The fish is trying to write something in the water.",
-          "A golden light shines from beneath the surface.",
-          "The bobber multiplies, then merges back into one.",
-          "You feel a tug, but the line goes sideways.",
-          "The water briefly parts, revealing a tiny treasure chest.",
-          "A melodious chime echoes across the water.",
-          "The line vibrates at a peculiar frequency.",
-          "You see a reflection of the moon, even if it's day.",
-          "The bobber turns into a tiny rubber duck.",
-          "The fish seems to be blowing bubbles."
-      };
-      event_id = esp_random() % 20;
-      char response_payload[1024];
-      snprintf(
-          response_payload, sizeof(response_payload),
-          "{\"type\":4,\"data\":{\"content\":\"You cast your line... %s How do "
-          "you reel it "
-          "in?\",\"components\":[{\"type\":1,\"components\":[{\"type\":2,"
-          "\"style\":1,\"custom_id\":\"fish_gentle_%d_%s\",\"label\":\"Reels "
-          "gently\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_fast_%d_%s\","
-          "\"label\":\"Reels "
-          "faster\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_erratic_%d_%"
-          "s\",\"label\":\"Reels "
-          "erratically\"},{\"type\":2,\"style\":1,\"custom_id\":\"fish_"
-          "suggestive_%d_%s\",\"label\":\"Reels suggestively\"}]}]}}",
-          fish_events[event_id], event_id, user_id, event_id, user_id, event_id,
-          user_id, event_id, user_id
-      );
-      snprintf(
-          endpoint, sizeof(endpoint), "/interactions/%s/%s/callback",
-          id->valuestring, token->valuestring
-      );
-      discord_api_request(HTTP_METHOD_POST, endpoint, response_payload);
-      break;
-
-    case 3:  // MESSAGE_COMPONENT
-      ESP_LOGI(TAG, "Received MESSAGE_COMPONENT interaction");
-      data = cJSON_GetObjectItem(d, "data");
-      if (!data) {
-        ESP_LOGE(TAG, "Interaction missing data object");
-        break;
-      }
-
-      cJSON* custom_id = cJSON_GetObjectItem(data, "custom_id");
-      if (!cJSON_IsString(custom_id)) {
-        ESP_LOGE(TAG, "custom_id missing or not a string");
-        break;
-      }
-
-      ESP_LOGI(TAG, "Component custom_id: %s", custom_id->valuestring);
-      if (strncmp(custom_id->valuestring, "fish_", 5) != 0) {
-        ESP_LOGW(TAG, "unrecognized custom_id: %s", custom_id->valuestring);
-        break;
-      }
-
-      ESP_LOGI(TAG, "Processing fish component interaction");
-
-      char action[32] = {0};
-      event_id = 0;
-      char original_user_id[32] = {0};
-
-      if (sscanf(
-              custom_id->valuestring, "fish_%31[^_]_%d_%31s", action, &event_id,
-              original_user_id
-          ) != 3) {
-        ESP_LOGE(TAG, "Failed to parse custom_id: %s", custom_id->valuestring);
-        return;
-      }
-
-      if (strcmp(user_id, original_user_id) != 0) {
-        ESP_LOGW(
-            TAG, "User %s tried to interact with fish for %s", user_id,
-            original_user_id
-        );
-        const char* ephemeral_msg =
-            "{\"type\":4,\"data\":{\"content\":\"This is not your fishing "
-            "line!\",\"flags\":64}}";
-        snprintf(
-            endpoint, sizeof(endpoint), "/interactions/%s/%s/callback",
-            id->valuestring, token->valuestring
-        );
-        discord_api_request(HTTP_METHOD_POST, endpoint, ephemeral_msg);
-        return;
-      }
-
-      const char* defer_payload = "{\"type\":6}";
-      char endpoint[512];
-      snprintf(
-          endpoint, sizeof(endpoint), "/interactions/%s/%s/callback",
-          id->valuestring, token->valuestring
-      );
-      discord_api_request(HTTP_METHOD_POST, endpoint, defer_payload);
-
-      bool is_suggestive = (strcmp(action, "suggestive") == 0);
-      bool is_gentle = (strcmp(action, "gentle") == 0);
-      bool is_fast = (strcmp(action, "fast") == 0);
-      bool is_erratic = (strcmp(action, "erratic") == 0);
-
-      int favored_btn = event_id % 4;
-      bool is_favored = false;
-      if (is_gentle && favored_btn == 0) is_favored = true;
-      if (is_fast && favored_btn == 1) is_favored = true;
-      if (is_erratic && favored_btn == 2) is_favored = true;
-      if (is_suggestive && favored_btn == 3) is_favored = true;
-
-      int win_chance = is_suggestive ? 30 : 50;
-      if (is_favored) {
-        win_chance += 15;
-      }
-      int rand_val = esp_random() % 100;
-      bool won = (rand_val < win_chance);
-
-      cJSON* patch_data = cJSON_CreateObject();
-      cJSON_AddArrayToObject(patch_data, "components");
-
-      if (won) {
-        const char* fish_pool[] = {
-            "sangonomiya_kokomi+-comic", "mualani_%28genshin_impact%29+-comic",
-            "ikamusume+-comic", "gawr_gura+-comic", "sameko_saba+-comic"
-        };
-        const char* fish_names[] = {
-            "Kokomi", "Mualani", "squid", "shark", "mackerel"
-        };
-        int fish_idx = esp_random() % 5;
-
-        char content_buf[64];
-        snprintf(
-            content_buf, sizeof(content_buf), "You caught a %s!",
-            fish_names[fish_idx]
-        );
-        cJSON_AddStringToObject(patch_data, "content", content_buf);
-
-        char* image_url = is_suggestive
-                              ? fetch_danbooru_risky_img(fish_pool[fish_idx])
-                              : fetch_danbooru_safe_img(fish_pool[fish_idx]);
-        if (image_url) {
-          cJSON* embeds = cJSON_CreateArray();
-          cJSON* embed = cJSON_CreateObject();
-          cJSON* image = cJSON_CreateObject();
-          cJSON_AddStringToObject(image, "url", image_url);
-          cJSON_AddItemToObject(embed, "image", image);
-          cJSON_AddItemToArray(embeds, embed);
-          cJSON_AddItemToObject(patch_data, "embeds", embeds);
-          free(image_url);
-        }
-      } else {
-        cJSON_AddStringToObject(patch_data, "content", "The fish got away...");
-      }
-
-      char* patch_str = cJSON_PrintUnformatted(patch_data);
-      if (global_app_id[0] != '\0' && patch_str) {
-        char webhook_endpoint[512];
-        snprintf(
-            webhook_endpoint, sizeof(webhook_endpoint),
-            "/webhooks/%s/%s/messages/@original", global_app_id,
-            token->valuestring
-        );
-        discord_api_request(HTTP_METHOD_PATCH, webhook_endpoint, patch_str);
-      } else if (global_app_id[0] == '\0') {
-        ESP_LOGE(TAG, "global_app_id is empty!");
-      }
-
-      if (patch_str) free(patch_str);
-      cJSON_Delete(patch_data);
-      break;
-  }
 }
 
 
@@ -547,6 +271,274 @@ static void heartbeat_task(void* pvParameters) {
     }
     cJSON_Delete(root);
   }
+}
+
+
+static void message_task(void* pvParameters) {
+  cJSON* d = (cJSON*)pvParameters;
+  if (!d) {
+    vTaskDelete(NULL);
+  }
+
+  cJSON* author = cJSON_GetObjectItem(d, "author");
+  if (!author || !cJSON_IsObject(author)) {
+    cJSON_Delete(d);
+    vTaskDelete(NULL);
+  }
+
+  cJSON* username = cJSON_GetObjectItem(author, "username");
+  if (!username || !cJSON_IsString(username)) {
+    cJSON_Delete(d);
+    vTaskDelete(NULL);
+  }
+
+  cJSON* is_bot = cJSON_GetObjectItem(author, "bot");
+  if (cJSON_IsTrue(is_bot)) {
+    cJSON_Delete(d);
+    vTaskDelete(NULL);
+  }
+
+  cJSON* content = cJSON_GetObjectItem(d, "content");
+  if (!cJSON_IsString(content)) {
+    cJSON_Delete(d);
+    vTaskDelete(NULL);
+  }
+
+  cJSON* channel_id = cJSON_GetObjectItem(d, "channel_id");
+  if (!cJSON_IsString(channel_id)) {
+    cJSON_Delete(d);
+    vTaskDelete(NULL);
+  }
+
+  char* username_str = strdup(username->valuestring);
+  char* content_str = strdup(content->valuestring);
+  char* channel = strdup(channel_id->valuestring);
+  cJSON_Delete(d);
+
+  // debug logging
+  if (content_str[0] == '.') {
+    ESP_LOGI(TAG, "cmd: %s", content_str);
+  }
+
+  if (strcmp(content_str, ".misha") == 0) {
+    handle_character_command(channel, "misha_%28honkai%3A_star_rail%29");
+
+  } else if (strcmp(content_str, ".furina") == 0) {
+    handle_character_command(channel, "furina_%28genshin_impact%29");
+
+  } else if (strcmp(content_str, ".karen") == 0) {
+    handle_character_command(channel, "kujou_karen");
+
+  } else if (strcmp(content_str, ".kokomi") == 0) {
+    handle_character_command(channel, "sangonomiya_kokomi");
+
+  } else if (strcmp(content_str, ".reisen") == 0) {
+    handle_character_command(channel, "reisen_udongein_inaba");
+
+  } else if (strcmp(content_str, ".ika") == 0) {
+    handle_character_command(channel, "ikamusume");
+
+  } else if (strcmp(content_str, ".amber") == 0) {
+    handle_character_command(channel, "amber_%28genshin_impact%29");
+
+  } else if (strcmp(content_str, ".venti") == 0) {
+    handle_character_command(channel, "venti_%28genshin_impact%29");
+
+  } else {
+    ESP_LOGV(TAG, "[%s]: %s", username_str, content_str);
+  }
+
+  free(username_str);
+  free(content_str);
+  free(channel);
+  vTaskDelete(NULL);
+}
+
+
+static void interaction_task(void* pvParameters) {
+  cJSON* d = (cJSON*)pvParameters;
+  if (!d) {
+    vTaskDelete(NULL);
+  }
+
+  cJSON* type_item = cJSON_GetObjectItem(d, "type");
+  if (!cJSON_IsNumber(type_item)) {
+    cJSON_Delete(d);
+    vTaskDelete(NULL);
+  }
+  int int_type = type_item->valueint;
+
+  cJSON* id_item = cJSON_GetObjectItem(d, "id");
+  cJSON* token_item = cJSON_GetObjectItem(d, "token");
+  if (!cJSON_IsString(id_item) || !cJSON_IsString(token_item)) {
+    cJSON_Delete(d);
+    vTaskDelete(NULL);
+  }
+  char* id = strdup(id_item->valuestring);
+  char* token = strdup(token_item->valuestring);
+
+  cJSON* member = cJSON_GetObjectItem(d, "member");
+  cJSON* user = (member && cJSON_IsObject(member))
+                    ? cJSON_GetObjectItem(member, "user")
+                    : cJSON_GetObjectItem(d, "user");
+  if (!user || !cJSON_IsObject(user)) {
+    cJSON_Delete(d);
+    vTaskDelete(NULL);
+  }
+  cJSON* uid = cJSON_GetObjectItem(user, "id");
+  if (!cJSON_IsString(uid)) {
+    cJSON_Delete(d);
+    vTaskDelete(NULL);
+  }
+  char* user_id = strdup(uid->valuestring);
+
+  cJSON* data = cJSON_GetObjectItem(d, "data");
+  char* cmd_name = NULL;
+  char* custom_id = NULL;
+  if (data && cJSON_IsObject(data)) {
+    cJSON* name_item = cJSON_GetObjectItem(data, "name");
+    if (cJSON_IsString(name_item)) cmd_name = strdup(name_item->valuestring);
+    cJSON* cid_item = cJSON_GetObjectItem(data, "custom_id");
+    if (cJSON_IsString(cid_item)) custom_id = strdup(cid_item->valuestring);
+  }
+
+  cJSON_Delete(d);
+
+  char endpoint[512];
+  if (int_type == 2) {  // APPLICATION_COMMAND
+    if (cmd_name && strcmp(cmd_name, "fish") == 0) {
+      const char* fish_events[20] = {
+          "The water ripples in the shape of a heart.",
+          "A tiny bubble floats up and pops with a 'meow'.",
+          "The bobber spins like a top.",
+          "You smell... strawberries?",
+          "The line feels strangely heavy, then light.",
+          "A spectral hand briefly grasps your line.",
+          "The water around the bobber turns neon green.",
+          "You hear a faint whispering from the depths.",
+          "The bobber suddenly sinks, then shoots into the sky!",
+          "A small vortex forms around the line.",
+          "The fish is trying to write something in the water.",
+          "A golden light shines from beneath the surface.",
+          "The bobber multiplies, then merges back into one.",
+          "You feel a tug, but the line goes sideways.",
+          "The water briefly parts, revealing a tiny treasure chest.",
+          "A melodious chime echoes across the water.",
+          "The line vibrates at a peculiar frequency.",
+          "You see a reflection of the moon, even if it's day.",
+          "The bobber turns into a tiny rubber duck.",
+          "The fish seems to be blowing bubbles."
+      };
+      int event_id = esp_random() % 20;
+      char payload[1024];
+      snprintf(
+          payload, sizeof(payload),
+          "{\"type\":4,\"data\":{\"content\":\"You cast your line... %s How do "
+          "you reel it in?\",\"components\":[{\"type\":1,\"components\":["
+          "{\"type\":2,\"style\":1,\"custom_id\":\"fish_gentle_%d_%s\","
+          "\"label\":\"Reel gently\"},"
+          "{\"type\":2,\"style\":1,\"custom_id\":\"fish_fast_%d_%s\",\"label\":"
+          "\"Reel faster\"},"
+          "{\"type\":2,\"style\":1,\"custom_id\":\"fish_erratic_%d_%s\","
+          "\"label\":\"Reel erratically\"},"
+          "{\"type\":2,\"style\":1,\"custom_id\":\"fish_suggestive_%d_%s\","
+          "\"label\":\"Reel suggestively\"}]}]}}",
+          fish_events[event_id], event_id, user_id, event_id, user_id, event_id,
+          user_id, event_id, user_id
+      );
+      snprintf(
+          endpoint, sizeof(endpoint), "/interactions/%s/%s/callback", id, token
+      );
+      discord_api_request(HTTP_METHOD_POST, endpoint, payload);
+    }
+  } else if (int_type == 3) {  // MESSAGE_COMPONENT
+    if (custom_id && strncmp(custom_id, "fish_", 5) == 0) {
+      char action[32];
+      int event_id;
+      char orig_uid[32];
+      if (sscanf(
+              custom_id, "fish_%31[^_]_%d_%31s", action, &event_id, orig_uid
+          ) == 3) {
+        if (strcmp(user_id, orig_uid) != 0) {
+          const char* eph =
+              "{\"type\":4,\"data\":{\"content\":\"This is not your fishing "
+              "line!\",\"flags\":64}}";
+          snprintf(
+              endpoint, sizeof(endpoint), "/interactions/%s/%s/callback", id,
+              token
+          );
+          discord_api_request(HTTP_METHOD_POST, endpoint, eph);
+        } else {
+          discord_api_request(
+              HTTP_METHOD_POST,
+              (snprintf(
+                   endpoint, sizeof(endpoint), "/interactions/%s/%s/callback",
+                   id, token
+               ),
+               endpoint),
+              "{\"type\":6}"
+          );
+          int chance = (strcmp(action, "suggestive") == 0) ? 30 : 50;
+          if ((strcmp(action, "gentle") == 0 && event_id % 4 == 0) ||
+              (strcmp(action, "fast") == 0 && event_id % 4 == 1) ||
+              (strcmp(action, "erratic") == 0 && event_id % 4 == 2) ||
+              (strcmp(action, "suggestive") == 0 && event_id % 4 == 3))
+            chance += 15;
+          bool won = ((int)(esp_random() % 100) < chance);
+          cJSON* patch = cJSON_CreateObject();
+          cJSON_AddArrayToObject(patch, "components");
+          if (won) {
+            const char* pool[] = {
+                "sangonomiya_kokomi+-comic",
+                "mualani_%28genshin_impact%29+-comic", "ikamusume+-comic",
+                "gawr_gura+-comic", "sameko_saba+-comic"
+            };
+            const char* names[] = {
+                "Kokomi", "Mualani", "squid", "shark", "mackerel"
+            };
+            int idx = esp_random() % 5;
+            char buf[64];
+            snprintf(buf, sizeof(buf), "You caught a %s!", names[idx]);
+            cJSON_AddStringToObject(patch, "content", buf);
+            char* img = (strcmp(action, "suggestive") == 0)
+                            ? fetch_danbooru_risky_img(pool[idx])
+                            : fetch_danbooru_safe_img(pool[idx]);
+            if (img) {
+              cJSON* embeds = cJSON_CreateArray();
+              cJSON* embed = cJSON_CreateObject();
+              cJSON* image = cJSON_CreateObject();
+              cJSON_AddStringToObject(image, "url", img);
+              cJSON_AddItemToObject(embed, "image", image);
+              cJSON_AddItemToArray(embeds, embed);
+              cJSON_AddItemToObject(patch, "embeds", embeds);
+              free(img);
+            }
+          } else {
+            cJSON_AddStringToObject(patch, "content", "The fish got away...");
+          }
+          char* pstr = cJSON_PrintUnformatted(patch);
+          if (global_app_id[0] != '\0' && pstr) {
+            char wh_end[512];
+            snprintf(
+                wh_end, sizeof(wh_end), "/webhooks/%s/%s/messages/@original",
+                global_app_id, token
+            );
+            discord_api_request(HTTP_METHOD_PATCH, wh_end, pstr);
+          }
+          if (pstr) {
+            free(pstr);
+          }
+          cJSON_Delete(patch);
+        }
+      }
+    }
+  }
+  free(id);
+  free(token);
+  free(user_id);
+  if (cmd_name) free(cmd_name);
+  if (custom_id) free(custom_id);
+  vTaskDelete(NULL);
 }
 
 
@@ -613,9 +605,12 @@ static void websocket_event_handler(
       ws_rx_buffer[ws_rx_len] = '\0';
 
       cJSON* root = cJSON_Parse(ws_rx_buffer);
+      free(ws_rx_buffer);
+      ws_rx_buffer = NULL;
+      ws_rx_len = 0;
       if (!root) {
         ESP_LOGW(TAG, "Failed to parse JSON. Payload length: %d", ws_rx_len);
-        goto cleanup_ws_rx_buffer;
+        break;
       }
 
       cJSON* op = cJSON_GetObjectItem(root, "op");
@@ -671,18 +666,22 @@ static void websocket_event_handler(
               }
             }
           } else if (strcmp(t->valuestring, "MESSAGE_CREATE") == 0) {
-            on_message(d);
+            cJSON* msg_dup = cJSON_Duplicate(d, 1);
+            if (msg_dup) {
+              xTaskCreate(message_task, "message_task", 8192, msg_dup, 5, NULL);
+            }
           } else if (strcmp(t->valuestring, "INTERACTION_CREATE") == 0) {
-            handle_interaction_create(d);
+            cJSON* interaction_dup = cJSON_Duplicate(d, 1);
+            if (interaction_dup) {
+              xTaskCreate(
+                  interaction_task, "int_task", 8192, interaction_dup, 5, NULL
+              );
+            }
           }
         }
       }
     cleanup_rootjson:
       cJSON_Delete(root);
-    cleanup_ws_rx_buffer:
-      free(ws_rx_buffer);
-      ws_rx_buffer = NULL;
-      ws_rx_len = 0;
       break;
 
     case WEBSOCKET_EVENT_ERROR:

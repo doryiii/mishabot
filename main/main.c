@@ -69,5 +69,5 @@ void app_main(void) {
   xTaskCreate(
       discord_bot_task, "discord_bot", 8192, (void*)&discord_cfg, 5, NULL
   );
-  // xTaskCreate(memory_monitor_task, "mem_mon", 2048, NULL, 1, NULL);
+  xTaskCreate(memory_monitor_task, "mem_mon", 2048, NULL, 1, NULL);
 }
