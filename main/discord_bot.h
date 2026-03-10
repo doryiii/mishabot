@@ -18,6 +18,8 @@
 
 #include <stdint.h>
 
+#include "esp_check.h"
+
 /**
  * Discord Gateway Intents (v10)
  * Reference: https://discord.com/developers/docs/topics/gateway#gateway-intents
@@ -49,4 +51,9 @@ typedef struct {
   uint32_t intents;
 } discord_bot_config_t;
 
+void send_discord_typing(const char* channel_id);
+void send_discord_image_embed(const char* channel_id, const char* image_url);
+
 void discord_bot_task(void* pvParameters);
+esp_err_t discord_api_post(const char* path, const char* data);
+esp_err_t discord_api_patch(const char* path, const char* data);
