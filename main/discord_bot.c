@@ -16,6 +16,7 @@
  */
 #include "discord_bot.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -50,30 +51,19 @@ static char global_app_id[32] = {0};
 static void discord_send_identify(esp_websocket_client_handle_t client) {
   if (!bot_config) return;
 
-  cJSON* root = cJSON_CreateObject();
-  cJSON_AddNumberToObject(root, "op", 2);
+  char payload[512];
+  snprintf(
+      payload, sizeof(payload),
+      "{\"op\":2,\"d\":{\"token\":\"%s\",\"intents\":%" PRIu32
+      ",\"properties\":{\"os\":\"linux\",\"browser\":\"esp32\",\"device\":"
+      "\"esp32\"}}}",
+      bot_config->token, bot_config->intents
+  );
 
-  cJSON* d = cJSON_CreateObject();
-  cJSON_AddStringToObject(d, "token", bot_config->token);
-  cJSON_AddNumberToObject(d, "intents", bot_config->intents);
-
-  cJSON* props = cJSON_CreateObject();
-  cJSON_AddStringToObject(props, "os", "linux");
-  cJSON_AddStringToObject(props, "browser", "esp32");
-  cJSON_AddStringToObject(props, "device", "esp32");
-
-  cJSON_AddItemToObject(d, "properties", props);
-  cJSON_AddItemToObject(root, "d", d);
-
-  char* payload = cJSON_PrintUnformatted(root);
-  if (payload) {
-    ESP_LOGI(TAG, "Sending Identify");
-    esp_websocket_client_send_text(
-        client, payload, strlen(payload), portMAX_DELAY
-    );
-    free(payload);
-  }
-  cJSON_Delete(root);
+  ESP_LOGI(TAG, "Sending Identify");
+  esp_websocket_client_send_text(
+      client, payload, strlen(payload), portMAX_DELAY
+  );
 }
 
 
@@ -139,41 +129,15 @@ void send_discord_typing(const char* channel_id) {
 
 
 void send_discord_image_embed(const char* channel_id, const char* image_url) {
-  cJSON* root = cJSON_CreateObject();
-  cJSON* embeds = cJSON_CreateArray();
-  cJSON* embed = cJSON_CreateObject();
-  cJSON* image = cJSON_CreateObject();
-
-  cJSON_AddStringToObject(image, "url", image_url);
-  cJSON_AddItemToObject(embed, "image", image);
-  cJSON_AddItemToArray(embeds, embed);
-  cJSON_AddItemToObject(root, "embeds", embeds);
-
-  char* post_data = cJSON_PrintUnformatted(root);
+  char post_data[512];
+  snprintf(
+      post_data, sizeof(post_data),
+      "{\"embeds\":[{\"image\":{\"url\":\"%s\"}}]}", image_url
+  );
 
   char path[128];
   snprintf(path, sizeof(path), "/channels/%s/messages", channel_id);
   discord_api_post(path, post_data);
-
-  free(post_data);
-  cJSON_Delete(root);
-}
-
-
-static void register_slash_commands(const char* app_id) {
-  cJSON* root = cJSON_CreateObject();
-  cJSON_AddStringToObject(root, "name", "fish");
-  cJSON_AddStringToObject(root, "description", "Start a fishing minigame");
-  cJSON_AddNumberToObject(root, "type", 1);  // CHAT_INPUT
-
-  char* payload = cJSON_PrintUnformatted(root);
-  if (payload) {
-    char endpoint[128];
-    snprintf(endpoint, sizeof(endpoint), "/applications/%s/commands", app_id);
-    discord_api_request(HTTP_METHOD_POST, endpoint, payload);
-    free(payload);
-  }
-  cJSON_Delete(root);
 }
 
 
@@ -185,23 +149,17 @@ static void heartbeat_task(void* pvParameters) {
     }
     vTaskDelay(pdMS_TO_TICKS(heartbeat_interval_ms));
 
-    cJSON* root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "op", 1);
+    char payload[128];
     if (last_seq_num >= 0) {
-      cJSON_AddNumberToObject(root, "d", last_seq_num);
+      snprintf(payload, sizeof(payload), "{\"op\":1,\"d\":%d}", last_seq_num);
     } else {
-      cJSON_AddNullToObject(root, "d");
+      snprintf(payload, sizeof(payload), "{\"op\":1,\"d\":null}");
     }
 
-    char* payload = cJSON_PrintUnformatted(root);
-    if (payload) {
-      ESP_LOGD(TAG, "Sending Heartbeat");
-      esp_websocket_client_send_text(
-          ws_client, payload, strlen(payload), portMAX_DELAY
-      );
-      free(payload);
-    }
-    cJSON_Delete(root);
+    ESP_LOGD(TAG, "Sending Heartbeat");
+    esp_websocket_client_send_text(
+        ws_client, payload, strlen(payload), portMAX_DELAY
+    );
   }
 }
 

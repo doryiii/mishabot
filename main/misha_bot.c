@@ -106,6 +106,16 @@ static void handle_character_command(const char* channel_id, const char* tags) {
 }
 
 
+void register_slash_commands(const char* app_id) {
+  char payload[] =
+      "{\"name\":\"fish\",\"description\":\"Start a fishing "
+      "minigame\",\"type\":1}";
+  char path[128];
+  snprintf(path, sizeof(path), "/applications/%s/commands", app_id);
+  discord_api_post(path, payload);
+}
+
+
 void on_message(
     const char* username, const char* content, const char* channel
 ) {
@@ -142,6 +152,7 @@ void on_message(
     ESP_LOGV(TAG, "[%s]: %s", username, content);
   }
 }
+
 
 void on_interaction_cmd(
     const char* id, const char* token, const char* cmd, const char* user_id
@@ -192,6 +203,7 @@ void on_interaction_cmd(
   }
 }
 
+
 void on_interaction_action(
     const char* global_app_id, const char* id, const char* token,
     const char* custom_action_id, const char* user_id
@@ -224,8 +236,7 @@ void on_interaction_action(
             (strcmp(action, "suggestive") == 0 && event_id % 4 == 3))
           chance += 15;
         bool won = ((int)(esp_random() % 100) < chance);
-        cJSON* patch = cJSON_CreateObject();
-        cJSON_AddArrayToObject(patch, "components");
+        char pstr[1024];
         if (won) {
           const char* pool[] = {
               "sangonomiya_kokomi+-comic+-everyone",
@@ -239,36 +250,37 @@ void on_interaction_action(
           int idx = esp_random() % 5;
           char buf[64];
           snprintf(buf, sizeof(buf), "You caught a %s!", names[idx]);
-          cJSON_AddStringToObject(patch, "content", buf);
           char* img = (strcmp(action, "suggestive") == 0)
                           ? fetch_danbooru_risky_img(pool[idx])
                           : fetch_danbooru_safe_img(pool[idx]);
           if (img) {
-            cJSON* embeds = cJSON_CreateArray();
-            cJSON* embed = cJSON_CreateObject();
-            cJSON* image = cJSON_CreateObject();
-            cJSON_AddStringToObject(image, "url", img);
-            cJSON_AddItemToObject(embed, "image", image);
-            cJSON_AddItemToArray(embeds, embed);
-            cJSON_AddItemToObject(patch, "embeds", embeds);
+            snprintf(
+                pstr, sizeof(pstr),
+                "{\"components\":[],\"content\":\"%s\",\"embeds\":[{\"image\":{"
+                "\"url\":\"%s\"}}]}",
+                buf, img
+            );
             free(img);
+          } else {
+            snprintf(
+                pstr, sizeof(pstr), "{\"components\":[],\"content\":\"%s\"}",
+                buf
+            );
           }
         } else {
-          cJSON_AddStringToObject(patch, "content", "The fish got away...");
+          snprintf(
+              pstr, sizeof(pstr),
+              "{\"components\":[],\"content\":\"The fish got away...\"}"
+          );
         }
 
-        char* pstr = cJSON_PrintUnformatted(patch);
-        if (global_app_id[0] != '\0' && pstr) {
+        if (global_app_id[0] != '\0') {
           snprintf(
               path, sizeof(path), "/webhooks/%s/%s/messages/@original",
               global_app_id, token
           );
           discord_api_patch(path, pstr);
         }
-        if (pstr) {
-          free(pstr);
-        }
-        cJSON_Delete(patch);
       }
     }
   }
