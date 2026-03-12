@@ -17,8 +17,13 @@ static const char* TAG = "misha_bot";
   "https://danbooru.donmai.us/posts/random.json?login=" CONFIG_DANBOORU_LOGIN \
   "&api_key=" CONFIG_DANBOORU_API_KEY "&tags="
 
-static char* fetch_danbooru(const char* tags, const char* filter) {
-  char* image_url = NULL;
+static bool fetch_danbooru(
+    const char* tags, const char* filter, char* image_url_out, size_t max_len
+) {
+  bool success = false;
+  if (image_url_out && max_len > 0) {
+    image_url_out[0] = '\0';
+  }
 
   char url[256];
   snprintf(url, sizeof(url), "%s%s+%s+-animated", DANBOORU_BASE, tags, filter);
@@ -65,8 +70,11 @@ static char* fetch_danbooru(const char* tags, const char* filter) {
         cJSON* root = cJSON_Parse(buf);
         if (root) {
           cJSON* file_url = cJSON_GetObjectItem(root, "file_url");
-          if (cJSON_IsString(file_url)) {
-            image_url = strdup(file_url->valuestring);
+          if (cJSON_IsString(file_url) && file_url->valuestring &&
+              image_url_out && max_len > 0) {
+            strncpy(image_url_out, file_url->valuestring, max_len - 1);
+            image_url_out[max_len - 1] = '\0';
+            success = true;
           }
           cJSON_Delete(root);
         }
@@ -78,18 +86,18 @@ static char* fetch_danbooru(const char* tags, const char* filter) {
   }
 
   esp_http_client_cleanup(client);
-  ESP_LOGI(TAG, "image: %s", image_url);
-  return image_url;
+  ESP_LOGI(TAG, "image: %s", success ? image_url_out : "NULL");
+  return success;
 }
 
 
-char* fetch_danbooru_safe_img(const char* tags) {
-  return fetch_danbooru(tags, "rating%3Ageneral");
+bool fetch_danbooru_safe_img(const char* tags, char* out_url, size_t max_len) {
+  return fetch_danbooru(tags, "rating%3Ageneral", out_url, max_len);
 }
 
 
-char* fetch_danbooru_risky_img(const char* tags) {
-  return fetch_danbooru(tags, "rating%3Asafe");
+bool fetch_danbooru_risky_img(const char* tags, char* out_url, size_t max_len) {
+  return fetch_danbooru(tags, "rating%3Asafe", out_url, max_len);
 }
 
 
@@ -97,10 +105,9 @@ static void handle_character_command(const char* channel_id, const char* tags) {
   send_discord_typing(channel_id);
 
   ESP_LOGI(TAG, "Getting %s images", tags);
-  char* image_url = fetch_danbooru_safe_img(tags);
-  if (image_url) {
+  char image_url[128];
+  if (fetch_danbooru_safe_img(tags, image_url, sizeof(image_url))) {
     send_discord_image_embed(channel_id, image_url);
-    free(image_url);
   } else {
     ESP_LOGW(TAG, "Could not get image URL from Danbooru for %s", tags);
   }
@@ -211,81 +218,79 @@ void on_interaction_action(
     const char* custom_action_id, const char* user_id
 ) {
   ESP_LOGI(TAG, "/%s", custom_action_id);
-  if (strncmp(custom_action_id, "fish_", 5) != 0) {
-    return;
-  }
 
   char action[32];
   int event_id;
   char orig_uid[32];
+
+  // this is a fishing action
   if (sscanf(
           custom_action_id, "fish_%31[^_]_%d_%31s", action, &event_id, orig_uid
-      ) != 3) {
-    return;
-  }
+      ) == 3) {
+    char path[512];
+    snprintf(path, sizeof(path), "/interactions/%s/%s/callback", id, token);
+    ESP_LOGI(TAG, "/%s: sending deferred interaction", custom_action_id);
+    discord_api_post(path, "{\"type\":6}");
 
-  char path[512];
-  snprintf(path, sizeof(path), "/interactions/%s/%s/callback", id, token);
-  ESP_LOGI(TAG, "/%s: sending deferred interaction", custom_action_id);
-  discord_api_post(path, "{\"type\":6}");
+    if (strcmp(user_id, orig_uid) != 0) {
+      // not original user clicking button
+      const char* eph =
+          "{\"type\":4,\"data\":{\"content\":\"This is not your fishing "
+          "line!\",\"flags\":64}}";
+      discord_api_post(path, eph);
+      return;
+    }
 
-  if (strcmp(user_id, orig_uid) != 0) {
-    // not original user clicking button
-    const char* eph =
-        "{\"type\":4,\"data\":{\"content\":\"This is not your fishing "
-        "line!\",\"flags\":64}}";
-    discord_api_post(path, eph);
-    return;
-  }
-
-  int chance = (strcmp(action, "suggestive") == 0) ? 30 : 50;
-  if ((strcmp(action, "gentle") == 0 && event_id % 4 == 0) ||
-      (strcmp(action, "fast") == 0 && event_id % 4 == 1) ||
-      (strcmp(action, "erratic") == 0 && event_id % 4 == 2) ||
-      (strcmp(action, "suggestive") == 0 && event_id % 4 == 3))
-    chance += 15;
-  bool won = ((int)(esp_random() % 100) < chance);
-  char pstr[1024];
-  if (won) {
-    const char* pool[] = {
-        "sangonomiya_kokomi+-comic+-everyone",
-        "mualani_%28genshin_impact%29+-comic+-everyone",
-        "ikamusume+-comic+-everyone", "gawr_gura+-comic+-everyone",
-        "sameko_saba+-comic+-everyone"
-    };
-    const char* names[] = {"Kokomi", "Mualani", "squid", "shark", "mackerel"};
-    int idx = esp_random() % 5;
-    char buf[64];
-    snprintf(buf, sizeof(buf), "You caught a %s!", names[idx]);
-    char* img = (strcmp(action, "suggestive") == 0)
-                    ? fetch_danbooru_risky_img(pool[idx])
-                    : fetch_danbooru_safe_img(pool[idx]);
-    if (img) {
-      snprintf(
-          pstr, sizeof(pstr),
-          "{\"components\":[],\"content\":\"%s\",\"embeds\":[{\"image\":{"
-          "\"url\":\"%s\"}}]}",
-          buf, img
-      );
-      free(img);
+    int chance = (strcmp(action, "suggestive") == 0) ? 30 : 50;
+    if ((strcmp(action, "gentle") == 0 && event_id % 4 == 0) ||
+        (strcmp(action, "fast") == 0 && event_id % 4 == 1) ||
+        (strcmp(action, "erratic") == 0 && event_id % 4 == 2) ||
+        (strcmp(action, "suggestive") == 0 && event_id % 4 == 3))
+      chance += 15;
+    bool won = ((int)(esp_random() % 100) < chance);
+    char res[1024];
+    if (won) {
+      const char* pool[] = {
+          "sangonomiya_kokomi+-comic+-everyone",
+          "mualani_%28genshin_impact%29+-comic+-everyone",
+          "ikamusume+-comic+-everyone", "gawr_gura+-comic+-everyone",
+          "sameko_saba+-comic+-everyone"
+      };
+      const char* names[] = {"Kokomi", "Mualani", "squid", "shark", "mackerel"};
+      int idx = esp_random() % 5;
+      char buf[64];
+      snprintf(buf, sizeof(buf), "You caught a %s!", names[idx]);
+      char img_url[128];
+      bool has_img =
+          (strcmp(action, "suggestive") == 0)
+              ? fetch_danbooru_risky_img(pool[idx], img_url, sizeof(img_url))
+              : fetch_danbooru_safe_img(pool[idx], img_url, sizeof(img_url));
+      if (has_img) {
+        snprintf(
+            res, sizeof(res),
+            "{\"components\":[],\"content\":\"%s\",\"embeds\":[{\"image\":{"
+            "\"url\":\"%s\"}}]}",
+            buf, img_url
+        );
+      } else {
+        snprintf(
+            res, sizeof(res), "{\"components\":[],\"content\":\"%s\"}", buf
+        );
+      }
     } else {
       snprintf(
-          pstr, sizeof(pstr), "{\"components\":[],\"content\":\"%s\"}", buf
+          res, sizeof(res),
+          "{\"components\":[],\"content\":\"The fish got away...\"}"
       );
     }
-  } else {
-    snprintf(
-        pstr, sizeof(pstr),
-        "{\"components\":[],\"content\":\"The fish got away...\"}"
-    );
-  }
 
-  if (global_app_id[0] != '\0') {
-    snprintf(
-        path, sizeof(path), "/webhooks/%s/%s/messages/@original", global_app_id,
-        token
-    );
-    ESP_LOGI(TAG, "/%s: sending final response", custom_action_id);
-    discord_api_patch(path, pstr);
+    if (global_app_id[0] != '\0') {
+      snprintf(
+          path, sizeof(path), "/webhooks/%s/%s/messages/@original",
+          global_app_id, token
+      );
+      ESP_LOGI(TAG, "/%s: sending final response", custom_action_id);
+      discord_api_patch(path, res);
+    }
   }
 }
