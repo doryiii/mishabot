@@ -45,24 +45,8 @@ static TaskHandle_t heartbeat_task_handle = NULL;
 static discord_bot_config_t bot_config = {0};
 static char global_app_id[32] = {0};
 
-static void discord_send_identify(esp_websocket_client_handle_t client) {
-  if (!bot_config.token) return;
 
-  char payload[512];
-  snprintf(
-      payload, sizeof(payload),
-      "{\"op\":2,\"d\":{\"token\":\"%s\",\"intents\":%" PRIu32
-      ",\"properties\":{\"os\":\"linux\",\"browser\":\"esp32\",\"device\":"
-      "\"esp32\"}}}",
-      bot_config.token, bot_config.intents
-  );
-
-  ESP_LOGI(TAG, "Sending Identify");
-  esp_websocket_client_send_text(
-      client, payload, strlen(payload), portMAX_DELAY
-  );
-}
-
+/* ---------- helper functions ---------- */
 
 static esp_err_t discord_api_request(
     esp_http_client_method_t method, const char* endpoint, const char* req_data
@@ -118,25 +102,48 @@ esp_err_t discord_api_patch(const char* path, const char* data) {
 }
 
 
-void send_discord_typing(const char* channel_id) {
+esp_err_t send_discord_typing(const char* channel_id) {
   char path[128];
   snprintf(path, sizeof(path), "/channels/%s/typing", channel_id);
-  discord_api_post(path, NULL);
+  return discord_api_post(path, NULL);
 }
 
 
-void send_discord_image_embed(const char* channel_id, const char* image_url) {
+esp_err_t send_discord_image_embed(
+    const char* channel_id, const char* img_url
+) {
   char post_data[512];
   snprintf(
       post_data, sizeof(post_data),
-      "{\"embeds\":[{\"image\":{\"url\":\"%s\"}}]}", image_url
+      "{\"embeds\":[{\"image\":{\"url\":\"%s\"}}]}", img_url
   );
 
   char path[128];
   snprintf(path, sizeof(path), "/channels/%s/messages", channel_id);
-  discord_api_post(path, post_data);
+  return discord_api_post(path, post_data);
 }
 
+
+static void discord_send_identify(esp_websocket_client_handle_t client) {
+  if (!bot_config.token) return;
+
+  char payload[512];
+  snprintf(
+      payload, sizeof(payload),
+      "{\"op\":2,\"d\":{\"token\":\"%s\",\"intents\":%" PRIu32
+      ",\"properties\":{\"os\":\"linux\",\"browser\":\"esp32\",\"device\":"
+      "\"esp32\"}}}",
+      bot_config.token, bot_config.intents
+  );
+
+  ESP_LOGI(TAG, "Sending Identify");
+  esp_websocket_client_send_text(
+      client, payload, strlen(payload), portMAX_DELAY
+  );
+}
+
+
+/* ---------- Miscellaneous FreeRTOS tasks ---------- */
 
 static void heartbeat_task(void* pvParameters) {
   while (1) {
@@ -178,6 +185,7 @@ static void message_task(void* pvParameters) {
   vTaskDelete(NULL);
 }
 
+
 typedef struct {
   int type;
   char* id;
@@ -209,6 +217,8 @@ static void interaction_task(void* pvParameters) {
   vTaskDelete(NULL);
 }
 
+
+/* ---------- main websocket event loop callback ---------- */
 
 static void websocket_event_handler(
     void* handler_args, esp_event_base_t base, int32_t event_id,
@@ -417,6 +427,8 @@ static void websocket_event_handler(
 }
 
 
+/* ---------- Main bot entrypoint ---------- */
+
 static void discord_bot_task(void* pvParameters) {
   ESP_LOGI(TAG, "Starting Discord Bot Task");
 
@@ -461,6 +473,5 @@ static void discord_bot_task(void* pvParameters) {
 
 void discord_bot_init(const discord_bot_config_t* config) {
   if (config) bot_config = *config;
-
   xTaskCreate(discord_bot_task, "discord_bot", 8192, NULL, 4, NULL);
 }

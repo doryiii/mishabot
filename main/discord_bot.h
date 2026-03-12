@@ -46,6 +46,7 @@
 #define DISCORD_INTENT_GUILD_MESSAGE_POLLS (1 << 24)
 #define DISCORD_INTENT_DIRECT_MESSAGE_POLLS (1 << 25)
 
+// callbacks
 typedef void (*discord_on_ready_cb)(const char* app_id);
 typedef void (*discord_on_message_cb)(
     const char* username, const char* content, const char* channel
@@ -58,6 +59,7 @@ typedef void (*discord_on_interaction_action_cb)(
     const char* custom_action_id, const char* user_id
 );
 
+// main bot config struct
 typedef struct {
   const char* token;
   uint32_t intents;
@@ -67,9 +69,10 @@ typedef struct {
   discord_on_interaction_action_cb on_interaction_action;
 } discord_bot_config_t;
 
-void send_discord_typing(const char* channel_id);
-void send_discord_image_embed(const char* channel_id, const char* image_url);
-
 void discord_bot_init(const discord_bot_config_t* config);
+
+// utility functions
+esp_err_t send_discord_typing(const char* channel_id);
+esp_err_t send_discord_image_embed(const char* channel_id, const char* img_url);
 esp_err_t discord_api_post(const char* path, const char* data);
 esp_err_t discord_api_patch(const char* path, const char* data);
