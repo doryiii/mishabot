@@ -9,6 +9,7 @@
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_random.h"
 
 static const char* TAG = "misha_bot";
 
@@ -157,6 +158,7 @@ void on_message(
 void on_interaction_cmd(
     const char* id, const char* token, const char* cmd, const char* user_id
 ) {
+  ESP_LOGI(TAG, "/%s", cmd);
   if (strcmp(cmd, "fish") == 0) {
     const char* fish_events[20] = {
         "The water ripples in the shape of a heart.",
@@ -208,80 +210,82 @@ void on_interaction_action(
     const char* global_app_id, const char* id, const char* token,
     const char* custom_action_id, const char* user_id
 ) {
-  if (strncmp(custom_action_id, "fish_", 5) == 0) {
-    char action[32];
-    int event_id;
-    char orig_uid[32];
-    if (sscanf(
-            custom_action_id, "fish_%31[^_]_%d_%31s", action, &event_id,
-            orig_uid
-        ) == 3) {
-      char path[512];
-      snprintf(path, sizeof(path), "/interactions/%s/%s/callback", id, token);
+  ESP_LOGI(TAG, "/%s", custom_action_id);
+  if (strncmp(custom_action_id, "fish_", 5) != 0) {
+    return;
+  }
 
-      if (strcmp(user_id, orig_uid) != 0) {
-        // not original user clicking button
-        const char* eph =
-            "{\"type\":4,\"data\":{\"content\":\"This is not your fishing "
-            "line!\",\"flags\":64}}";
-        discord_api_post(path, eph);
+  char action[32];
+  int event_id;
+  char orig_uid[32];
+  if (sscanf(
+          custom_action_id, "fish_%31[^_]_%d_%31s", action, &event_id, orig_uid
+      ) != 3) {
+    return;
+  }
 
-      } else {
-        discord_api_post(path, "{\"type\":6}");  // send "defer interaction"
+  char path[512];
+  snprintf(path, sizeof(path), "/interactions/%s/%s/callback", id, token);
+  ESP_LOGI(TAG, "/%s: sending deferred interaction", custom_action_id);
+  discord_api_post(path, "{\"type\":6}");
 
-        int chance = (strcmp(action, "suggestive") == 0) ? 30 : 50;
-        if ((strcmp(action, "gentle") == 0 && event_id % 4 == 0) ||
-            (strcmp(action, "fast") == 0 && event_id % 4 == 1) ||
-            (strcmp(action, "erratic") == 0 && event_id % 4 == 2) ||
-            (strcmp(action, "suggestive") == 0 && event_id % 4 == 3))
-          chance += 15;
-        bool won = ((int)(esp_random() % 100) < chance);
-        char pstr[1024];
-        if (won) {
-          const char* pool[] = {
-              "sangonomiya_kokomi+-comic+-everyone",
-              "mualani_%28genshin_impact%29+-comic+-everyone",
-              "ikamusume+-comic+-everyone", "gawr_gura+-comic+-everyone",
-              "sameko_saba+-comic+-everyone"
-          };
-          const char* names[] = {
-              "Kokomi", "Mualani", "squid", "shark", "mackerel"
-          };
-          int idx = esp_random() % 5;
-          char buf[64];
-          snprintf(buf, sizeof(buf), "You caught a %s!", names[idx]);
-          char* img = (strcmp(action, "suggestive") == 0)
-                          ? fetch_danbooru_risky_img(pool[idx])
-                          : fetch_danbooru_safe_img(pool[idx]);
-          if (img) {
-            snprintf(
-                pstr, sizeof(pstr),
-                "{\"components\":[],\"content\":\"%s\",\"embeds\":[{\"image\":{"
-                "\"url\":\"%s\"}}]}",
-                buf, img
-            );
-            free(img);
-          } else {
-            snprintf(
-                pstr, sizeof(pstr), "{\"components\":[],\"content\":\"%s\"}",
-                buf
-            );
-          }
-        } else {
-          snprintf(
-              pstr, sizeof(pstr),
-              "{\"components\":[],\"content\":\"The fish got away...\"}"
-          );
-        }
+  if (strcmp(user_id, orig_uid) != 0) {
+    // not original user clicking button
+    const char* eph =
+        "{\"type\":4,\"data\":{\"content\":\"This is not your fishing "
+        "line!\",\"flags\":64}}";
+    discord_api_post(path, eph);
+    return;
+  }
 
-        if (global_app_id[0] != '\0') {
-          snprintf(
-              path, sizeof(path), "/webhooks/%s/%s/messages/@original",
-              global_app_id, token
-          );
-          discord_api_patch(path, pstr);
-        }
-      }
+  int chance = (strcmp(action, "suggestive") == 0) ? 30 : 50;
+  if ((strcmp(action, "gentle") == 0 && event_id % 4 == 0) ||
+      (strcmp(action, "fast") == 0 && event_id % 4 == 1) ||
+      (strcmp(action, "erratic") == 0 && event_id % 4 == 2) ||
+      (strcmp(action, "suggestive") == 0 && event_id % 4 == 3))
+    chance += 15;
+  bool won = ((int)(esp_random() % 100) < chance);
+  char pstr[1024];
+  if (won) {
+    const char* pool[] = {
+        "sangonomiya_kokomi+-comic+-everyone",
+        "mualani_%28genshin_impact%29+-comic+-everyone",
+        "ikamusume+-comic+-everyone", "gawr_gura+-comic+-everyone",
+        "sameko_saba+-comic+-everyone"
+    };
+    const char* names[] = {"Kokomi", "Mualani", "squid", "shark", "mackerel"};
+    int idx = esp_random() % 5;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "You caught a %s!", names[idx]);
+    char* img = (strcmp(action, "suggestive") == 0)
+                    ? fetch_danbooru_risky_img(pool[idx])
+                    : fetch_danbooru_safe_img(pool[idx]);
+    if (img) {
+      snprintf(
+          pstr, sizeof(pstr),
+          "{\"components\":[],\"content\":\"%s\",\"embeds\":[{\"image\":{"
+          "\"url\":\"%s\"}}]}",
+          buf, img
+      );
+      free(img);
+    } else {
+      snprintf(
+          pstr, sizeof(pstr), "{\"components\":[],\"content\":\"%s\"}", buf
+      );
     }
+  } else {
+    snprintf(
+        pstr, sizeof(pstr),
+        "{\"components\":[],\"content\":\"The fish got away...\"}"
+    );
+  }
+
+  if (global_app_id[0] != '\0') {
+    snprintf(
+        path, sizeof(path), "/webhooks/%s/%s/messages/@original", global_app_id,
+        token
+    );
+    ESP_LOGI(TAG, "/%s: sending final response", custom_action_id);
+    discord_api_patch(path, pstr);
   }
 }

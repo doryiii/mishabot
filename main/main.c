@@ -33,7 +33,7 @@ static void memory_monitor_task(void* pvParameter) {
         "MEM", "Free: %zu | Min: %zu", heap_caps_get_free_size(MALLOC_CAP_8BIT),
         heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)
     );
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    vTaskDelay(pdMS_TO_TICKS(10000));
   }
 }
 
@@ -67,7 +67,7 @@ void app_main(void) {
            DISCORD_INTENT_GUILD_MESSAGES | DISCORD_INTENT_MESSAGE_CONTENT),
   };
   xTaskCreate(
-      discord_bot_task, "discord_bot", 8192, (void*)&discord_cfg, 5, NULL
+      discord_bot_task, "discord_bot", 8192, (void*)&discord_cfg, 4, NULL
   );
   xTaskCreate(memory_monitor_task, "mem_mon", 2048, NULL, 1, NULL);
 }

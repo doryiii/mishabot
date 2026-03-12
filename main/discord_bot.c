@@ -25,9 +25,7 @@
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
-#include "esp_random.h"
 #include "esp_websocket_client.h"
-#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "misha_bot.h"
 
@@ -214,6 +212,9 @@ static void websocket_event_handler(
 ) {
   gpio_set_level(CONFIG_LED_GPIO, LED_ON);
 
+  static char* ws_rx_buffer = NULL;
+  static int ws_rx_len = 0;
+
   esp_websocket_event_data_t* data = (esp_websocket_event_data_t*)event_data;
   switch (event_id) {
     case WEBSOCKET_EVENT_CONNECTED:
@@ -221,10 +222,16 @@ static void websocket_event_handler(
       break;
 
     case WEBSOCKET_EVENT_DISCONNECTED:
-      ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
+    case WEBSOCKET_EVENT_CLOSED:
+      ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED / CLOSED");
       if (heartbeat_task_handle) {
         vTaskDelete(heartbeat_task_handle);
         heartbeat_task_handle = NULL;
+      }
+      if (ws_rx_buffer) {
+        free(ws_rx_buffer);
+        ws_rx_buffer = NULL;
+        ws_rx_len = 0;
       }
       last_seq_num = -1;
       break;
@@ -235,8 +242,6 @@ static void websocket_event_handler(
         // op_code we don't care about, or no data.
         break;
       }
-      static char* ws_rx_buffer = NULL;
-      static int ws_rx_len = 0;
 
       if (data->payload_offset == 0) {
         if (ws_rx_buffer) {
@@ -304,8 +309,13 @@ static void websocket_event_handler(
                 heartbeat_interval_ms
             );
 
+            if (heartbeat_task_handle) {
+              vTaskDelete(heartbeat_task_handle);
+              heartbeat_task_handle = NULL;
+            }
+
             xTaskCreate(
-                heartbeat_task, "heartbeat_task", 4096, NULL, 5,
+                heartbeat_task, "heartbeat_task", 4096, NULL, 4,
                 &heartbeat_task_handle
             );
 
@@ -384,7 +394,7 @@ static void websocket_event_handler(
                   if (cJSON_IsString(cid_item))
                     arg->custom_id = strdup(cid_item->valuestring);
                 }
-                xTaskCreate(interaction_task, "int_task", 6144, arg, 5, NULL);
+                xTaskCreate(interaction_task, "int_task", 6144, arg, 6, NULL);
               }
             }
           }
