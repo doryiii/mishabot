@@ -114,7 +114,7 @@ static void handle_character_command(const char* channel_id, const char* tags) {
 }
 
 
-void register_slash_commands(const char* app_id) {
+static void register_slash_commands(const char* app_id) {
   char payload[] =
       "{\"name\":\"fish\",\"description\":\"Start a fishing "
       "minigame\",\"type\":1}";
@@ -124,7 +124,7 @@ void register_slash_commands(const char* app_id) {
 }
 
 
-void on_message(
+static void on_message(
     const char* username, const char* content, const char* channel
 ) {
   // debug logging
@@ -162,7 +162,7 @@ void on_message(
 }
 
 
-void on_interaction_cmd(
+static void on_interaction_cmd(
     const char* id, const char* token, const char* cmd, const char* user_id
 ) {
   ESP_LOGI(TAG, "/%s", cmd);
@@ -213,7 +213,7 @@ void on_interaction_cmd(
 }
 
 
-void on_interaction_action(
+static void on_interaction_action(
     const char* global_app_id, const char* id, const char* token,
     const char* custom_action_id, const char* user_id
 ) {
@@ -293,4 +293,19 @@ void on_interaction_action(
       discord_api_patch(path, res);
     }
   }
+}
+
+
+void misha_bot_init(const char* token) {
+  discord_bot_config_t config = {
+      .token = token,
+      .intents = DISCORD_INTENT_GUILDS | DISCORD_INTENT_GUILD_MEMBERS |
+                 DISCORD_INTENT_GUILD_MESSAGES | DISCORD_INTENT_MESSAGE_CONTENT,
+      .on_ready = register_slash_commands,
+      .on_message = on_message,
+      .on_interaction_cmd = on_interaction_cmd,
+      .on_interaction_action = on_interaction_action,
+  };
+
+  discord_bot_init(&config);
 }

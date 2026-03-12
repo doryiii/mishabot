@@ -46,14 +46,30 @@
 #define DISCORD_INTENT_GUILD_MESSAGE_POLLS (1 << 24)
 #define DISCORD_INTENT_DIRECT_MESSAGE_POLLS (1 << 25)
 
+typedef void (*discord_on_ready_cb)(const char* app_id);
+typedef void (*discord_on_message_cb)(
+    const char* username, const char* content, const char* channel
+);
+typedef void (*discord_on_interaction_cmd_cb)(
+    const char* id, const char* token, const char* cmd, const char* user_id
+);
+typedef void (*discord_on_interaction_action_cb)(
+    const char* global_app_id, const char* id, const char* token,
+    const char* custom_action_id, const char* user_id
+);
+
 typedef struct {
   const char* token;
   uint32_t intents;
+  discord_on_ready_cb on_ready;
+  discord_on_message_cb on_message;
+  discord_on_interaction_cmd_cb on_interaction_cmd;
+  discord_on_interaction_action_cb on_interaction_action;
 } discord_bot_config_t;
 
 void send_discord_typing(const char* channel_id);
 void send_discord_image_embed(const char* channel_id, const char* image_url);
 
-void discord_bot_task(void* pvParameters);
+void discord_bot_init(const discord_bot_config_t* config);
 esp_err_t discord_api_post(const char* path, const char* data);
 esp_err_t discord_api_patch(const char* path, const char* data);

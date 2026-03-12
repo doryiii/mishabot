@@ -27,7 +27,6 @@
 #include "esp_log.h"
 #include "esp_websocket_client.h"
 #include "freertos/task.h"
-#include "misha_bot.h"
 
 static const char* TAG = "discord_bot";
 
@@ -43,11 +42,11 @@ static esp_websocket_client_handle_t ws_client = NULL;
 static int last_seq_num = -1;
 static int heartbeat_interval_ms = 0;
 static TaskHandle_t heartbeat_task_handle = NULL;
-static discord_bot_config_t* bot_config = NULL;
+static discord_bot_config_t bot_config = {0};
 static char global_app_id[32] = {0};
 
 static void discord_send_identify(esp_websocket_client_handle_t client) {
-  if (!bot_config) return;
+  if (!bot_config.token) return;
 
   char payload[512];
   snprintf(
@@ -55,7 +54,7 @@ static void discord_send_identify(esp_websocket_client_handle_t client) {
       "{\"op\":2,\"d\":{\"token\":\"%s\",\"intents\":%" PRIu32
       ",\"properties\":{\"os\":\"linux\",\"browser\":\"esp32\",\"device\":"
       "\"esp32\"}}}",
-      bot_config->token, bot_config->intents
+      bot_config.token, bot_config.intents
   );
 
   ESP_LOGI(TAG, "Sending Identify");
@@ -68,7 +67,7 @@ static void discord_send_identify(esp_websocket_client_handle_t client) {
 static esp_err_t discord_api_request(
     esp_http_client_method_t method, const char* endpoint, const char* req_data
 ) {
-  if (!bot_config) {
+  if (!bot_config.token) {
     return ESP_ERR_INVALID_STATE;
   }
 
@@ -83,7 +82,7 @@ static esp_err_t discord_api_request(
   esp_http_client_handle_t client = esp_http_client_init(&config);
 
   char auth_header[256];
-  snprintf(auth_header, sizeof(auth_header), "Bot %s", bot_config->token);
+  snprintf(auth_header, sizeof(auth_header), "Bot %s", bot_config.token);
   esp_http_client_set_header(client, "Authorization", auth_header);
   esp_http_client_set_header(client, "Content-Type", "application/json");
 
@@ -170,7 +169,8 @@ typedef struct {
 
 static void message_task(void* pvParameters) {
   msg_task_arg_t* arg = (msg_task_arg_t*)pvParameters;
-  on_message(arg->username, arg->content, arg->channel);
+  if (bot_config.on_message)
+    bot_config.on_message(arg->username, arg->content, arg->channel);
   free(arg->username);
   free(arg->content);
   free(arg->channel);
@@ -190,11 +190,15 @@ typedef struct {
 static void interaction_task(void* pvParameters) {
   int_task_arg_t* arg = (int_task_arg_t*)pvParameters;
   if (arg->type == 2 && arg->cmd_name) {  // APPLICATION_COMMAND
-    on_interaction_cmd(arg->id, arg->token, arg->cmd_name, arg->user_id);
+    if (bot_config.on_interaction_cmd)
+      bot_config.on_interaction_cmd(
+          arg->id, arg->token, arg->cmd_name, arg->user_id
+      );
   } else if (arg->type == 3 && arg->custom_id) {  // MESSAGE_COMPONENT
-    on_interaction_action(
-        global_app_id, arg->id, arg->token, arg->custom_id, arg->user_id
-    );
+    if (bot_config.on_interaction_action)
+      bot_config.on_interaction_action(
+          global_app_id, arg->id, arg->token, arg->custom_id, arg->user_id
+      );
   }
   free(arg->id);
   free(arg->token);
@@ -338,7 +342,7 @@ static void websocket_event_handler(
                     sizeof(global_app_id) - 1
                 );
                 global_app_id[sizeof(global_app_id) - 1] = '\0';
-                register_slash_commands(global_app_id);
+                if (bot_config.on_ready) bot_config.on_ready(global_app_id);
               }
             }
           } else if (strcmp(t->valuestring, "MESSAGE_CREATE") == 0) {
@@ -413,7 +417,7 @@ static void websocket_event_handler(
 }
 
 
-void discord_bot_task(void* pvParameters) {
+static void discord_bot_task(void* pvParameters) {
   ESP_LOGI(TAG, "Starting Discord Bot Task");
 
   // Initialize LED GPIO
@@ -421,9 +425,7 @@ void discord_bot_task(void* pvParameters) {
   gpio_set_direction(CONFIG_LED_GPIO, GPIO_MODE_OUTPUT);
   gpio_set_level(CONFIG_LED_GPIO, LED_OFF);
 
-  bot_config = (discord_bot_config_t*)pvParameters;
-
-  if (!bot_config || !bot_config->token) {
+  if (!bot_config.token || !bot_config.token) {
     ESP_LOGE(TAG, "Invalid bot configuration");
     vTaskDelete(NULL);
     return;
@@ -454,4 +456,11 @@ void discord_bot_task(void* pvParameters) {
     // we need to keep the structs alive for the websocket task
     vTaskDelay(pdMS_TO_TICKS(10000));
   }
+}
+
+
+void discord_bot_init(const discord_bot_config_t* config) {
+  if (config) bot_config = *config;
+
+  xTaskCreate(discord_bot_task, "discord_bot", 8192, NULL, 4, NULL);
 }
