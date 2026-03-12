@@ -10,6 +10,23 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "nvs.h"
+
+typedef struct {
+  uint32_t fished;
+  uint32_t caught[32];  // Space for 32 fish types
+} fish_stats_t;
+
+// Convert 64-bit Discord User ID into a short NVS key (11 chars)
+static void uid_to_nvs_key(const char* user_id, char* key_out) {
+  uint64_t uid = strtoull(user_id, NULL, 10);
+  const char b64[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  for (int i = 0; i < 11; i++) {
+    key_out[i] = b64[(uid >> (i * 6)) & 0x3F];
+  }
+  key_out[11] = '\0';
+}
 
 static const char* TAG = "misha_bot";
 
@@ -241,6 +258,22 @@ static void on_interaction_action(
       return;
     }
 
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open("fish_stats", NVS_READWRITE, &nvs_handle);
+    fish_stats_t stats = {0};
+    char nvs_key[16];
+    uid_to_nvs_key(user_id, nvs_key);
+
+    if (err == ESP_OK) {
+      size_t len = sizeof(stats);
+      esp_err_t get_err = nvs_get_blob(nvs_handle, nvs_key, &stats, &len);
+      if (get_err == ESP_OK && len != sizeof(stats)) {
+        // In case of size mismatch, clear stats to avoid corruption
+        memset(&stats, 0, sizeof(stats));
+      }
+    }
+    stats.fished++;
+
     int chance = (strcmp(action, "suggestive") == 0) ? 30 : 50;
     if ((strcmp(action, "gentle") == 0 && event_id % 4 == 0) ||
         (strcmp(action, "fast") == 0 && event_id % 4 == 1) ||
@@ -257,9 +290,20 @@ static void on_interaction_action(
           "sameko_saba+-comic+-everyone"
       };
       const char* names[] = {"Kokomi", "Mualani", "squid", "shark", "mackerel"};
+      const char* name_plurals[] = {
+          "Kokomis", "Mualanis", "squids", "sharks", "mackerels"
+      };
       int idx = esp_random() % 5;
-      char buf[64];
-      snprintf(buf, sizeof(buf), "You caught a %s!", names[idx]);
+      stats.caught[idx]++;
+
+      char buf[128];
+      snprintf(
+          buf, sizeof(buf),
+          "You caught a %s!\\n*You have fished %lu times and caught %lu %s.*",
+          names[idx], (unsigned long)stats.fished,
+          (unsigned long)stats.caught[idx], name_plurals[idx]
+      );
+
       char img_url[128];
       bool has_img =
           (strcmp(action, "suggestive") == 0)
@@ -280,8 +324,16 @@ static void on_interaction_action(
     } else {
       snprintf(
           res, sizeof(res),
-          "{\"components\":[],\"content\":\"The fish got away...\"}"
+          "{\"components\":[],\"content\":\"The fish got away...\\n*You have "
+          "fished %lu times.*\"}",
+          (unsigned long)stats.fished
       );
+    }
+
+    if (err == ESP_OK) {
+      nvs_set_blob(nvs_handle, nvs_key, &stats, sizeof(stats));
+      nvs_commit(nvs_handle);
+      nvs_close(nvs_handle);
     }
 
     if (global_app_id[0] != '\0') {

@@ -408,7 +408,7 @@ static void websocket_event_handler(
                   if (cJSON_IsString(cid_item))
                     arg->custom_id = strdup(cid_item->valuestring);
                 }
-                xTaskCreate(interaction_task, "int_task", 6144, arg, 6, NULL);
+                xTaskCreate(interaction_task, "int_task", 8192, arg, 6, NULL);
               }
             }
           }
