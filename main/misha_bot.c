@@ -30,6 +30,26 @@ static void uid_to_nvs_key(const char* user_id, char* key_out) {
 
 static const char* TAG = "misha_bot";
 
+#define SEEN_ACTIONS_SIZE 16
+static uint32_t seen_actions[SEEN_ACTIONS_SIZE];
+static int seen_actions_idx = 0;
+static portMUX_TYPE action_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static bool is_action_seen(uint32_t id) {
+  portENTER_CRITICAL(&action_mux);
+  for (int i = 0; i < SEEN_ACTIONS_SIZE; i++) {
+    if (seen_actions[i] == id) {
+      portEXIT_CRITICAL(&action_mux);
+      return true;
+    }
+  }
+  seen_actions[seen_actions_idx] = id;
+  seen_actions_idx = (seen_actions_idx + 1) % SEEN_ACTIONS_SIZE;
+  portEXIT_CRITICAL(&action_mux);
+  return false;
+}
+
+
 #define DANBOORU_BASE                                                         \
   "https://danbooru.donmai.us/posts/random.json?login=" CONFIG_DANBOORU_LOGIN \
   "&api_key=" CONFIG_DANBOORU_API_KEY "&tags="
@@ -137,6 +157,7 @@ static void register_slash_commands(const char* app_id) {
       "minigame\",\"type\":1}";
   char path[128];
   snprintf(path, sizeof(path), "/applications/%s/commands", app_id);
+  discord_api_post(path, "{}");
   discord_api_post(path, payload);
 }
 
@@ -207,21 +228,23 @@ static void on_interaction_cmd(
         "The fish seems to be blowing bubbles."
     };
     int event_id = esp_random() % 20;
+    uint32_t action_group_id = esp_random();
     char payload[1024];
     snprintf(
         payload, sizeof(payload),
         "{\"type\":4,\"data\":{\"content\":\"You cast your line... %s How do "
         "you reel it in?\",\"components\":[{\"type\":1,\"components\":["
-        "{\"type\":2,\"style\":1,\"custom_id\":\"fish_gentle_%d_%s\","
+        "{\"type\":2,\"style\":1,\"custom_id\":\"fish_gentle_%d_%s_%08lx\","
         "\"label\":\"Reel gently\"},"
-        "{\"type\":2,\"style\":1,\"custom_id\":\"fish_fast_%d_%s\",\"label\":"
-        "\"Reel faster\"},"
-        "{\"type\":2,\"style\":1,\"custom_id\":\"fish_erratic_%d_%s\","
+        "{\"type\":2,\"style\":1,\"custom_id\":\"fish_fast_%d_%s_%08lx\","
+        "\"label\":\"Reel faster\"},"
+        "{\"type\":2,\"style\":1,\"custom_id\":\"fish_erratic_%d_%s_%08lx\","
         "\"label\":\"Reel erratically\"},"
-        "{\"type\":2,\"style\":1,\"custom_id\":\"fish_suggestive_%d_%s\","
+        "{\"type\":2,\"style\":1,\"custom_id\":\"fish_suggestive_%d_%s_%08lx\","
         "\"label\":\"Reel suggestively\"}]}]}}",
-        fish_events[event_id], event_id, user_id, event_id, user_id, event_id,
-        user_id, event_id, user_id
+        fish_events[event_id], event_id, user_id, action_group_id, event_id,
+        user_id, action_group_id, event_id, user_id, action_group_id, event_id,
+        user_id, action_group_id
     );
     char path[512];
     snprintf(path, sizeof(path), "/interactions/%s/%s/callback", id, token);
@@ -234,29 +257,36 @@ static void on_interaction_action(
     const char* global_app_id, const char* id, const char* token,
     const char* custom_action_id, const char* user_id
 ) {
-  ESP_LOGI(TAG, "/%s", custom_action_id);
-
   char action[32];
   int event_id;
   char orig_uid[32];
+  uint32_t action_group_id;
 
   // this is a fishing action
   if (sscanf(
-          custom_action_id, "fish_%31[^_]_%d_%31s", action, &event_id, orig_uid
-      ) == 3) {
+          custom_action_id, "fish_%31[^_]_%d_%31[^_]_%lx", action, &event_id,
+          orig_uid, &action_group_id
+      ) == 4) {
     char path[512];
     snprintf(path, sizeof(path), "/interactions/%s/%s/callback", id, token);
-    ESP_LOGI(TAG, "/%s: sending deferred interaction", custom_action_id);
-    discord_api_post(path, "{\"type\":6}");
 
+    // not original user clicking button
     if (strcmp(user_id, orig_uid) != 0) {
-      // not original user clicking button
       const char* eph =
           "{\"type\":4,\"data\":{\"content\":\"This is not your fishing "
           "line!\",\"flags\":64}}";
       discord_api_post(path, eph);
       return;
     }
+
+    // user clicking on button twice
+    if (is_action_seen(action_group_id)) {
+      ESP_LOGI(TAG, "action %08lx duplicate, blocked", action_group_id);
+      return;
+    }
+
+    ESP_LOGI(TAG, "/%s: sending deferred interaction", custom_action_id);
+    discord_api_post(path, "{\"type\":6}");
 
     nvs_handle_t nvs_handle;
     esp_err_t err = nvs_open("fish_stats", NVS_READWRITE, &nvs_handle);
@@ -300,8 +330,7 @@ static void on_interaction_action(
       snprintf(
           buf, sizeof(buf),
           "You caught a %s!\\n*You have fished %lu times and caught %lu %s.*",
-          names[idx], (unsigned long)stats.fished,
-          (unsigned long)stats.caught[idx], name_plurals[idx]
+          names[idx], stats.fished, stats.caught[idx], name_plurals[idx]
       );
 
       char img_url[128];
@@ -326,7 +355,7 @@ static void on_interaction_action(
           res, sizeof(res),
           "{\"components\":[],\"content\":\"The fish got away...\\n*You have "
           "fished %lu times.*\"}",
-          (unsigned long)stats.fished
+          stats.fished
       );
     }
 
