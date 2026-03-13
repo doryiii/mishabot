@@ -329,7 +329,7 @@ static void websocket_event_handler(
             }
 
             xTaskCreate(
-                heartbeat_task, "heartbeat_task", 4096, NULL, 4,
+                heartbeat_task, "heartbeat_task", 2048, NULL, 4,
                 &heartbeat_task_handle
             );
 
@@ -473,5 +473,5 @@ static void discord_bot_task(void* pvParameters) {
 
 void discord_bot_init(const discord_bot_config_t* config) {
   if (config) bot_config = *config;
-  xTaskCreate(discord_bot_task, "discord_bot", 8192, NULL, 4, NULL);
+  xTaskCreate(discord_bot_task, "discord_bot", 4096, NULL, 4, NULL);
 }
