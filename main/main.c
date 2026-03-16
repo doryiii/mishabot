@@ -38,6 +38,10 @@ static void memory_monitor_task(void* pvParameter) {
   while (1) {
     // Wait for Enter key (blocks until newline received)
     int c = getchar();
+    if (c == EOF) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
     if (c == '\n' || c == '\r') {
       ESP_LOGI(
           "MEM", "Free: %zu | Min: %zu",
