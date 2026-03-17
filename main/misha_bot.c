@@ -143,12 +143,12 @@ bool fetch_danbooru_risky_img(const char* tags, char* out_url, size_t max_len) {
 
 
 static void handle_character_command(const char* channel_id, const char* tags) {
-  send_discord_typing(channel_id);
+  discord_send_typing(channel_id);
 
   ESP_LOGI(TAG, "Getting %s images", tags);
   char image_url[128];
   if (fetch_danbooru_safe_img(tags, image_url, sizeof(image_url))) {
-    send_discord_image_embed(channel_id, image_url);
+    discord_send_image_embed(channel_id, image_url);
   } else {
     ESP_LOGW(TAG, "Could not get image URL from Danbooru for %s", tags);
   }
@@ -156,7 +156,7 @@ static void handle_character_command(const char* channel_id, const char* tags) {
 
 
 static void handle_mem_command(const char* channel_id) {
-  char task_list[1024];
+  char buf[1536];
   size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
   size_t min_free_heap = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
 
@@ -167,30 +167,22 @@ static void handle_mem_command(const char* channel_id) {
   int mins = (uptime_sec % 3600) / 60;
   int secs = uptime_sec % 60;
 
-#ifdef CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
-  vTaskList(task_list);
-#else
-  snprintf(task_list, 1024, "vTaskList disabled");
-#endif
-
-  cJSON* root = cJSON_CreateObject();
-  char content[1536];
-  snprintf(
-      content, sizeof(content),
+  int offset = snprintf(
+      buf, sizeof(buf),
       "```Uptime: %d days, %d hours, %d mins, %d secs\n\n"
       "Heap free: %zu | min: %zu\n\n"
-      "Stack high watermark:\n%s```",
-      days, hours, mins, secs, free_heap, min_free_heap, task_list
+      "Stack high watermark:\n",
+      days, hours, mins, secs, free_heap, min_free_heap
   );
-  cJSON_AddStringToObject(root, "content", content);
-  char* json_str = cJSON_PrintUnformatted(root);
 
-  char path[128];
-  snprintf(path, sizeof(path), "/channels/%s/messages", channel_id);
-  discord_api_post(path, json_str);
+#ifdef CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
+  vTaskList(buf + offset);
+#else
+  strcat(buf + offset, "vTaskList disabled");
+#endif
 
-  free(json_str);
-  cJSON_Delete(root);
+  strcat(buf, "```");
+  discord_send_message(channel_id, buf);
 }
 
 

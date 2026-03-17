@@ -25,6 +25,7 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_websocket_client.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 static const char* TAG = "discord_bot";
@@ -32,6 +33,8 @@ static const char* TAG = "discord_bot";
 static esp_websocket_client_handle_t ws_client = NULL;
 static int last_seq_num = -1;
 static int heartbeat_interval_ms = 0;
+static bool heartbeat_acked = true;
+static SemaphoreHandle_t bot_mutex = NULL;
 static discord_bot_config_t bot_config = {0};
 static char global_app_id[32] = {0};
 
@@ -102,14 +105,29 @@ esp_err_t discord_api_patch(const char* path, const char* data) {
 }
 
 
-esp_err_t send_discord_typing(const char* channel_id) {
+esp_err_t discord_send_typing(const char* channel_id) {
   char path[128];
   snprintf(path, sizeof(path), "/channels/%s/typing", channel_id);
   return discord_api_post(path, NULL);
 }
 
 
-esp_err_t send_discord_image_embed(
+esp_err_t discord_send_message(const char* channel_id, const char* content) {
+  cJSON* root = cJSON_CreateObject();
+  cJSON_AddStringToObject(root, "content", content);
+  char* post_data = cJSON_PrintUnformatted(root);
+
+  char path[128];
+  snprintf(path, sizeof(path), "/channels/%s/messages", channel_id);
+  esp_err_t err = discord_api_post(path, post_data);
+
+  free(post_data);
+  cJSON_Delete(root);
+  return err;
+}
+
+
+esp_err_t discord_send_image_embed(
     const char* channel_id, const char* img_url
 ) {
   char post_data[512];
@@ -145,33 +163,63 @@ static void discord_send_identify(esp_websocket_client_handle_t client) {
 
 /* ---------- Miscellaneous FreeRTOS tasks ---------- */
 
+static void ready_task(void* pvParameters) {
+  char* app_id = (char*)pvParameters;
+  if (bot_config.on_ready) bot_config.on_ready(app_id);
+  free(app_id);
+  vTaskDelete(NULL);
+}
+
+
 static void heartbeat_task(void* pvParameters) {
   bool is_first = true;
   while (1) {
-    if (heartbeat_interval_ms <= 0 || !ws_client) {
+    xSemaphoreTake(bot_mutex, portMAX_DELAY);
+    int interval = heartbeat_interval_ms;
+    esp_websocket_client_handle_t client = ws_client;
+    bool acked = heartbeat_acked;
+    int seq = last_seq_num;
+    xSemaphoreGive(bot_mutex);
+
+    if (interval <= 0 || !client) {
       vTaskDelay(pdMS_TO_TICKS(1000));
       is_first = true;
       continue;
     }
+
+    if (!is_first && !acked) {
+      ESP_LOGW(
+          TAG,
+          "Heartbeat not acknowledged, possible zombie connection. "
+          "Reconnecting..."
+      );
+      esp_websocket_client_stop(client);
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+
     int delay;
     if (is_first) {
-      delay = 1000 + (esp_random() % (heartbeat_interval_ms - 1000));
+      delay = 1000 + (esp_random() % (interval - 1000));
     } else {
-      delay = heartbeat_interval_ms;
+      delay = interval;
     }
     vTaskDelay(pdMS_TO_TICKS(delay));
     is_first = false;
 
     char payload[128];
-    if (last_seq_num >= 0) {
-      snprintf(payload, sizeof(payload), "{\"op\":1,\"d\":%d}", last_seq_num);
+    if (seq >= 0) {
+      snprintf(payload, sizeof(payload), "{\"op\":1,\"d\":%d}", seq);
     } else {
       snprintf(payload, sizeof(payload), "{\"op\":1,\"d\":null}");
     }
 
     ESP_LOGI(TAG, "Sending Heartbeat");
+    xSemaphoreTake(bot_mutex, portMAX_DELAY);
+    heartbeat_acked = false;
+    xSemaphoreGive(bot_mutex);
     esp_websocket_client_send_text(
-        ws_client, payload, strlen(payload), portMAX_DELAY
+        client, payload, strlen(payload), portMAX_DELAY
     );
   }
 }
@@ -227,14 +275,6 @@ static void interaction_task(void* pvParameters) {
 }
 
 
-static void ready_task(void* pvParameters) {
-  char* app_id = (char*)pvParameters;
-  if (bot_config.on_ready) bot_config.on_ready(app_id);
-  free(app_id);
-  vTaskDelete(NULL);
-}
-
-
 /* ---------- main websocket event loop callback ---------- */
 
 static void websocket_event_handler(
@@ -253,13 +293,16 @@ static void websocket_event_handler(
     case WEBSOCKET_EVENT_DISCONNECTED:
     case WEBSOCKET_EVENT_CLOSED:
       ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED / CLOSED");
+      xSemaphoreTake(bot_mutex, portMAX_DELAY);
       heartbeat_interval_ms = 0;
+      heartbeat_acked = true;
+      last_seq_num = -1;
+      xSemaphoreGive(bot_mutex);
       if (ws_rx_buffer) {
         free(ws_rx_buffer);
         ws_rx_buffer = NULL;
         ws_rx_len = 0;
       }
-      last_seq_num = -1;
       break;
 
     case WEBSOCKET_EVENT_DATA:
@@ -316,7 +359,9 @@ static void websocket_event_handler(
       cJSON* d = cJSON_GetObjectItem(root, "d");
 
       if (cJSON_IsNumber(s)) {
+        xSemaphoreTake(bot_mutex, portMAX_DELAY);
         last_seq_num = s->valueint;
+        xSemaphoreGive(bot_mutex);
       }
 
       if (!cJSON_IsNumber(op)) {
@@ -329,10 +374,13 @@ static void websocket_event_handler(
         if (d && cJSON_IsObject(d)) {
           cJSON* interval = cJSON_GetObjectItem(d, "heartbeat_interval");
           if (cJSON_IsNumber(interval)) {
+            xSemaphoreTake(bot_mutex, portMAX_DELAY);
             heartbeat_interval_ms = interval->valueint;
+            heartbeat_acked = true;
+            xSemaphoreGive(bot_mutex);
             ESP_LOGI(
                 TAG, "Received Hello, heartbeat interval: %d ms",
-                heartbeat_interval_ms
+                interval->valueint
             );
 
             discord_send_identify(ws_client);
@@ -340,6 +388,9 @@ static void websocket_event_handler(
         }
       } else if (opcode == 11) {  // Heartbeat ACK
         ESP_LOGI(TAG, "Received Heartbeat ACK");
+        xSemaphoreTake(bot_mutex, portMAX_DELAY);
+        heartbeat_acked = true;
+        xSemaphoreGive(bot_mutex);
       } else if (opcode == 0) {  // Dispatch
         if (cJSON_IsString(t)) {
           ESP_LOGD(TAG, "Received Dispatch Event: %s", t->valuestring);
@@ -385,8 +436,8 @@ static void websocket_event_handler(
                     arg->content = strdup(content->valuestring);
                     arg->channel = strdup(channel_id->valuestring);
                     xTaskCreate(
-                        message_task, "discord_message_handler",
-                        8192, arg, 5, NULL
+                        message_task, "discord_message_handler", 8192, arg, 5,
+                        NULL
                     );
                   }
                 }
@@ -424,8 +475,8 @@ static void websocket_event_handler(
                     arg->custom_id = strdup(cid_item->valuestring);
                 }
                 xTaskCreate(
-                    interaction_task, "discord_interaction_handler",
-                    8192, arg, 6, NULL
+                    interaction_task, "discord_interaction_handler", 8192, arg,
+                    6, NULL
                 );
               }
             }
@@ -448,7 +499,7 @@ static void websocket_event_handler(
 static void discord_bot_task(void* pvParameters) {
   ESP_LOGI(TAG, "Starting Discord Bot Task");
 
-  if (!bot_config.token || !bot_config.token) {
+  if (!bot_config.token) {
     ESP_LOGE(TAG, "Invalid bot configuration");
     vTaskDelete(NULL);
     return;
@@ -484,6 +535,7 @@ static void discord_bot_task(void* pvParameters) {
 
 void discord_bot_init(const discord_bot_config_t* config) {
   if (config) bot_config = *config;
+  if (!bot_mutex) bot_mutex = xSemaphoreCreateMutex();
   xTaskCreate(heartbeat_task, "discord_heartbeat", 2048, NULL, 4, NULL);
   xTaskCreate(discord_bot_task, "discord_bot", 4096, NULL, 4, NULL);
 }

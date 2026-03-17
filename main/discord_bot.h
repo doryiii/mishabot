@@ -72,7 +72,8 @@ typedef struct {
 void discord_bot_init(const discord_bot_config_t* config);
 
 // utility functions
-esp_err_t send_discord_typing(const char* channel_id);
-esp_err_t send_discord_image_embed(const char* channel_id, const char* img_url);
+esp_err_t discord_send_typing(const char* channel_id);
+esp_err_t discord_send_message(const char* channel_id, const char* content);
+esp_err_t discord_send_image_embed(const char* channel_id, const char* img_url);
 esp_err_t discord_api_post(const char* path, const char* data);
 esp_err_t discord_api_patch(const char* path, const char* data);
