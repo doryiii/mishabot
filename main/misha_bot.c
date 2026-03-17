@@ -7,9 +7,13 @@
 #include "cJSON.h"
 #include "discord_bot.h"
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "nvs.h"
 
 typedef struct {
@@ -151,6 +155,44 @@ static void handle_character_command(const char* channel_id, const char* tags) {
 }
 
 
+static void handle_mem_command(const char* channel_id) {
+  char task_list[1024];
+  size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  size_t min_free_heap = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+
+  int64_t uptime_us = esp_timer_get_time();
+  int uptime_sec = (int)(uptime_us / 1000000);
+  int days = uptime_sec / (3600 * 24);
+  int hours = (uptime_sec % (3600 * 24)) / 3600;
+  int mins = (uptime_sec % 3600) / 60;
+  int secs = uptime_sec % 60;
+
+#ifdef CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
+  vTaskList(task_list);
+#else
+  snprintf(task_list, 1024, "vTaskList disabled");
+#endif
+
+  cJSON* root = cJSON_CreateObject();
+  char content[1536];
+  snprintf(
+      content, sizeof(content),
+      "```\nUptime: %d days, %d hours, %d mins, %d secs\nHeap free: %zu | "
+      "min: %zu\nStack:\n%s```",
+      days, hours, mins, secs, free_heap, min_free_heap, task_list
+  );
+  cJSON_AddStringToObject(root, "content", content);
+  char* json_str = cJSON_PrintUnformatted(root);
+
+  char path[128];
+  snprintf(path, sizeof(path), "/channels/%s/messages", channel_id);
+  discord_api_post(path, json_str);
+
+  free(json_str);
+  cJSON_Delete(root);
+}
+
+
 static void register_slash_commands(const char* app_id) {
   char payload[] =
       "{\"name\":\"fish\",\"description\":\"Start a fishing "
@@ -170,7 +212,10 @@ static void on_message(
     ESP_LOGI(TAG, "cmd: %s", content);
   }
 
-  if (strcmp(content, ".misha") == 0) {
+  if (strcmp(content, ".mem") == 0) {
+    handle_mem_command(channel);
+
+  } else if (strcmp(content, ".misha") == 0) {
     handle_character_command(channel, "misha_%28honkai%3A_star_rail%29");
 
   } else if (strcmp(content, ".furina") == 0) {

@@ -29,35 +29,6 @@
 
 static const char* TAG = "main";
 
-#ifdef CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
-#define MEM_MON_STACK 3072
-#else
-#define MEM_MON_STACK 2048
-#endif
-
-static void memory_monitor_task(void* pvParameter) {
-  while (1) {
-    // Wait for Enter key (blocks until newline received)
-    int c = getchar();
-    if (c == EOF) {
-      vTaskDelay(pdMS_TO_TICKS(100));
-      continue;
-    }
-    if (c == '\n' || c == '\r') {
-      ESP_LOGI(
-          "MEM", "Free: %zu | Min: %zu",
-          heap_caps_get_free_size(MALLOC_CAP_8BIT),
-          heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)
-      );
-#ifdef CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
-      char task_list[1024];
-      vTaskList(task_list);
-      ESP_LOGI("TASKS", "\n%s", task_list);
-#endif
-    }
-  }
-}
-
 
 #ifdef CONFIG_LED_INVERTED
 #define LED_ON 0
@@ -81,7 +52,6 @@ static void heartbeat_led_task(void* pvParameter) {
 
 void app_main(void) {
   xTaskCreate(heartbeat_led_task, "heartbeat_led", 1024, NULL, 1, NULL);
-  xTaskCreate(memory_monitor_task, "mem_mon", MEM_MON_STACK, NULL, 1, NULL);
 
   // Initialize NVS
   esp_err_t ret = nvs_flash_init();

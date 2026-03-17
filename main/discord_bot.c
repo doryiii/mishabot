@@ -356,7 +356,7 @@ static void websocket_event_handler(
                     arg->channel = strdup(channel_id->valuestring);
                     xTaskCreate(
                         message_task, "discord_message_handler",
-                        6144, arg, 5, NULL
+                        8192, arg, 5, NULL
                     );
                   }
                 }
