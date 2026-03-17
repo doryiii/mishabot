@@ -177,8 +177,9 @@ static void handle_mem_command(const char* channel_id) {
   char content[1536];
   snprintf(
       content, sizeof(content),
-      "```\nUptime: %d days, %d hours, %d mins, %d secs\nHeap free: %zu | "
-      "min: %zu\nStack:\n%s```",
+      "```Uptime: %d days, %d hours, %d mins, %d secs\n\n"
+      "Heap free: %zu | min: %zu\n\n"
+      "Stack high watermark:\n%s```",
       days, hours, mins, secs, free_heap, min_free_heap, task_list
   );
   cJSON_AddStringToObject(root, "content", content);
@@ -199,7 +200,6 @@ static void register_slash_commands(const char* app_id) {
       "minigame\",\"type\":1}";
   char path[128];
   snprintf(path, sizeof(path), "/applications/%s/commands", app_id);
-  discord_api_post(path, "{}");
   discord_api_post(path, payload);
 }
 

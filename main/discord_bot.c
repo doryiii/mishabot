@@ -64,7 +64,17 @@ static esp_err_t discord_api_request(
     esp_http_client_set_post_field(client, req_data, strlen(req_data));
   }
 
-  esp_err_t err = esp_http_client_perform(client);
+  esp_err_t err;
+  int retries = 3;
+  do {
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+      break;
+    }
+    ESP_LOGW(TAG, "HTTP error, retrying (%d left)...", retries);
+    vTaskDelay(pdMS_TO_TICKS(100));
+  } while (retries-- > 0);
+
   if (err == ESP_OK) {
     int status_code = esp_http_client_get_status_code(client);
     if (status_code >= 200 && status_code < 300) {
@@ -143,9 +153,12 @@ static void heartbeat_task(void* pvParameters) {
       is_first = true;
       continue;
     }
-    int delay = (
-        is_first ? esp_random() % heartbeat_interval_ms : heartbeat_interval_ms
-    );
+    int delay;
+    if (is_first) {
+      delay = 1000 + (esp_random() % (heartbeat_interval_ms - 1000));
+    } else {
+      delay = heartbeat_interval_ms;
+    }
     vTaskDelay(pdMS_TO_TICKS(delay));
     is_first = false;
 
@@ -156,7 +169,7 @@ static void heartbeat_task(void* pvParameters) {
       snprintf(payload, sizeof(payload), "{\"op\":1,\"d\":null}");
     }
 
-    ESP_LOGD(TAG, "Sending Heartbeat");
+    ESP_LOGI(TAG, "Sending Heartbeat");
     esp_websocket_client_send_text(
         ws_client, payload, strlen(payload), portMAX_DELAY
     );
@@ -210,6 +223,14 @@ static void interaction_task(void* pvParameters) {
   if (arg->cmd_name) free(arg->cmd_name);
   if (arg->custom_id) free(arg->custom_id);
   free(arg);
+  vTaskDelete(NULL);
+}
+
+
+static void ready_task(void* pvParameters) {
+  char* app_id = (char*)pvParameters;
+  if (bot_config.on_ready) bot_config.on_ready(app_id);
+  free(app_id);
   vTaskDelete(NULL);
 }
 
@@ -318,7 +339,7 @@ static void websocket_event_handler(
           }
         }
       } else if (opcode == 11) {  // Heartbeat ACK
-        ESP_LOGD(TAG, "Received Heartbeat ACK");
+        ESP_LOGI(TAG, "Received Heartbeat ACK");
       } else if (opcode == 0) {  // Dispatch
         if (cJSON_IsString(t)) {
           ESP_LOGD(TAG, "Received Dispatch Event: %s", t->valuestring);
@@ -334,7 +355,16 @@ static void websocket_event_handler(
                     sizeof(global_app_id) - 1
                 );
                 global_app_id[sizeof(global_app_id) - 1] = '\0';
-                if (bot_config.on_ready) bot_config.on_ready(global_app_id);
+
+                if (bot_config.on_ready) {
+                  char* id_copy = strdup(global_app_id);
+                  if (id_copy) {
+                    xTaskCreate(
+                        ready_task, "discord_ready_handler", 4096, id_copy, 5,
+                        NULL
+                    );
+                  }
+                }
               }
             }
 
