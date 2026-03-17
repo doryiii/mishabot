@@ -32,7 +32,6 @@ static const char* TAG = "discord_bot";
 static esp_websocket_client_handle_t ws_client = NULL;
 static int last_seq_num = -1;
 static int heartbeat_interval_ms = 0;
-static TaskHandle_t heartbeat_task_handle = NULL;
 static discord_bot_config_t bot_config = {0};
 static char global_app_id[32] = {0};
 
@@ -137,12 +136,18 @@ static void discord_send_identify(esp_websocket_client_handle_t client) {
 /* ---------- Miscellaneous FreeRTOS tasks ---------- */
 
 static void heartbeat_task(void* pvParameters) {
+  bool is_first = true;
   while (1) {
-    if (heartbeat_interval_ms <= 0) {
+    if (heartbeat_interval_ms <= 0 || !ws_client) {
       vTaskDelay(pdMS_TO_TICKS(1000));
+      is_first = true;
       continue;
     }
-    vTaskDelay(pdMS_TO_TICKS(heartbeat_interval_ms));
+    int delay = (
+        is_first ? esp_random() % heartbeat_interval_ms : heartbeat_interval_ms
+    );
+    vTaskDelay(pdMS_TO_TICKS(delay));
+    is_first = false;
 
     char payload[128];
     if (last_seq_num >= 0) {
@@ -227,10 +232,7 @@ static void websocket_event_handler(
     case WEBSOCKET_EVENT_DISCONNECTED:
     case WEBSOCKET_EVENT_CLOSED:
       ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED / CLOSED");
-      if (heartbeat_task_handle) {
-        vTaskDelete(heartbeat_task_handle);
-        heartbeat_task_handle = NULL;
-      }
+      heartbeat_interval_ms = 0;
       if (ws_rx_buffer) {
         free(ws_rx_buffer);
         ws_rx_buffer = NULL;
@@ -312,16 +314,6 @@ static void websocket_event_handler(
                 heartbeat_interval_ms
             );
 
-            if (heartbeat_task_handle) {
-              vTaskDelete(heartbeat_task_handle);
-              heartbeat_task_handle = NULL;
-            }
-
-            xTaskCreate(
-                heartbeat_task, "discord_heartbeat", 2048, NULL, 4,
-                &heartbeat_task_handle
-            );
-
             discord_send_identify(ws_client);
           }
         }
@@ -330,6 +322,7 @@ static void websocket_event_handler(
       } else if (opcode == 0) {  // Dispatch
         if (cJSON_IsString(t)) {
           ESP_LOGD(TAG, "Received Dispatch Event: %s", t->valuestring);
+
           if (strcmp(t->valuestring, "READY") == 0) {
             ESP_LOGI(TAG, "Discord Bot is READY!");
             cJSON* app = cJSON_GetObjectItem(d, "application");
@@ -344,6 +337,7 @@ static void websocket_event_handler(
                 if (bot_config.on_ready) bot_config.on_ready(global_app_id);
               }
             }
+
           } else if (strcmp(t->valuestring, "MESSAGE_CREATE") == 0) {
             cJSON* author = cJSON_GetObjectItem(d, "author");
             if (author) {
@@ -368,6 +362,7 @@ static void websocket_event_handler(
                 }
               }
             }
+
           } else if (strcmp(t->valuestring, "INTERACTION_CREATE") == 0) {
             cJSON* type_item = cJSON_GetObjectItem(d, "type");
             cJSON* id_item = cJSON_GetObjectItem(d, "id");
@@ -459,5 +454,6 @@ static void discord_bot_task(void* pvParameters) {
 
 void discord_bot_init(const discord_bot_config_t* config) {
   if (config) bot_config = *config;
+  xTaskCreate(heartbeat_task, "discord_heartbeat", 2048, NULL, 4, NULL);
   xTaskCreate(discord_bot_task, "discord_bot", 4096, NULL, 4, NULL);
 }
