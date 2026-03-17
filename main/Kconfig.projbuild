@@ -2,13 +2,13 @@ menu "Project Configuration"
 
     config WIFI_SSID
         string "WiFi SSID"
-        default "YOUR_WIFI_NAME"
+        default ""
         help
             SSID of your WiFi network.
 
     config WIFI_PASSWORD
         string "WiFi Password"
-        default "YOUR_WIFI_PASSWORD"
+        default ""
         help
             Password of your WiFi network.
 
@@ -20,19 +20,19 @@ menu "Project Configuration"
 
     config DISCORD_BOT_TOKEN
         string "Discord Bot Token"
-        default "YOUR_BOT_TOKEN_HERE"
+        default ""
         help
             Your Discord Bot Token.
 
     config DANBOORU_LOGIN
         string "Danbooru Login"
-        default "YOUR_DANBOORU_USERNAME"
+        default ""
         help
             Your Danbooru username/login.
 
     config DANBOORU_API_KEY
         string "Danbooru API Key"
-        default "YOUR_DANBOORU_APIKEY"
+        default ""
         help
             Your Danbooru API Key.
 
@@ -47,5 +47,11 @@ menu "Project Configuration"
         default n
         help
             Set to 'y' if the LED is on when the GPIO is LOW.
+
+    config BLINK_LED_STRIP
+        bool "Whether the LED is ARGB as opposed to simple LED"
+        default n
+        help
+            Set to 'y' if the LED is ARGB. RMT only.
 
 endmenu

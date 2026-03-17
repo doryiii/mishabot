@@ -21,7 +21,6 @@
 #include <string.h>
 
 #include "cJSON.h"
-#include "driver/gpio.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
@@ -29,14 +28,6 @@
 #include "freertos/task.h"
 
 static const char* TAG = "discord_bot";
-
-#ifdef CONFIG_LED_INVERTED
-#define LED_ON 0
-#define LED_OFF 1
-#else
-#define LED_ON 1
-#define LED_OFF 0
-#endif
 
 static esp_websocket_client_handle_t ws_client = NULL;
 static int last_seq_num = -1;
@@ -224,8 +215,6 @@ static void websocket_event_handler(
     void* handler_args, esp_event_base_t base, int32_t event_id,
     void* event_data
 ) {
-  gpio_set_level(CONFIG_LED_GPIO, LED_ON);
-
   static char* ws_rx_buffer = NULL;
   static int ws_rx_len = 0;
 
@@ -329,7 +318,7 @@ static void websocket_event_handler(
             }
 
             xTaskCreate(
-                heartbeat_task, "heartbeat_task", 2048, NULL, 4,
+                heartbeat_task, "discord_heartbeat", 2048, NULL, 4,
                 &heartbeat_task_handle
             );
 
@@ -372,7 +361,8 @@ static void websocket_event_handler(
                     arg->content = strdup(content->valuestring);
                     arg->channel = strdup(channel_id->valuestring);
                     xTaskCreate(
-                        message_task, "message_task", 6144, arg, 5, NULL
+                        message_task, "discord_message_handler",
+                        6144, arg, 5, NULL
                     );
                   }
                 }
@@ -408,7 +398,10 @@ static void websocket_event_handler(
                   if (cJSON_IsString(cid_item))
                     arg->custom_id = strdup(cid_item->valuestring);
                 }
-                xTaskCreate(interaction_task, "int_task", 8192, arg, 6, NULL);
+                xTaskCreate(
+                    interaction_task, "discord_interaction_handler",
+                    8192, arg, 6, NULL
+                );
               }
             }
           }
@@ -422,8 +415,6 @@ static void websocket_event_handler(
       ESP_LOGW(TAG, "WEBSOCKET_EVENT_ERROR");
       break;
   }
-
-  gpio_set_level(CONFIG_LED_GPIO, LED_OFF);
 }
 
 
@@ -431,11 +422,6 @@ static void websocket_event_handler(
 
 static void discord_bot_task(void* pvParameters) {
   ESP_LOGI(TAG, "Starting Discord Bot Task");
-
-  // Initialize LED GPIO
-  gpio_reset_pin(CONFIG_LED_GPIO);
-  gpio_set_direction(CONFIG_LED_GPIO, GPIO_MODE_OUTPUT);
-  gpio_set_level(CONFIG_LED_GPIO, LED_OFF);
 
   if (!bot_config.token || !bot_config.token) {
     ESP_LOGE(TAG, "Invalid bot configuration");
