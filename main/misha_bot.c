@@ -60,7 +60,6 @@ static void slop_task(void* pvParameters) {
   slop_task_arg_t* arg = (slop_task_arg_t*)pvParameters;
 
   if (llm_ready) {
-    discord_send_typing(arg->channel_id);
 
     Sampler sampler;
     int steps = 512;
@@ -74,10 +73,12 @@ static void slop_task(void* pvParameters) {
     // Discord message limit is 2000 chars
     char* out_buf = calloc(1, 2048);
     if (out_buf) {
+      void* typing_handle = discord_start_typing(arg->channel_id);
       generate(
           &transformer, &tokenizer, &sampler, arg->prompt, steps, out_buf, 2048,
           NULL, NULL
       );
+      discord_stop_typing(typing_handle);
       if (strlen(out_buf) > 0) {
         discord_send_message(arg->channel_id, out_buf);
       } else {
@@ -86,8 +87,9 @@ static void slop_task(void* pvParameters) {
       free(out_buf);
     }
     free_sampler(&sampler);
+
   } else {
-    discord_send_message(arg->channel_id, "LLM not ready (SPIFFS failure?).");
+    discord_send_message(arg->channel_id, "Sorry, I tried my best...");
   }
 
   free(arg->channel_id);

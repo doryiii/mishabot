@@ -163,6 +163,42 @@ static void discord_send_identify(esp_websocket_client_handle_t client) {
 
 /* ---------- Miscellaneous FreeRTOS tasks ---------- */
 
+static void typing_task(void* arg) {
+  char* channel_id = (char*)arg;
+  while (true) {
+    discord_send_typing(channel_id);
+    // Wait up to 8000ms for a task notification to stop
+    uint32_t notification = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(8000));
+    if (notification > 0) {
+      break;
+    }
+  }
+  free(channel_id);
+  vTaskDelete(NULL);
+}
+
+void* discord_start_typing(const char* channel_id) {
+  if (!channel_id) return NULL;
+  char* cid = strdup(channel_id);
+  if (!cid) return NULL;
+
+  TaskHandle_t task_handle = NULL;
+  if (xTaskCreate(typing_task, "discord_typing", 6144, cid, 4, &task_handle) !=
+      pdPASS) {
+    free(cid);
+    return NULL;
+  }
+  return (void*)task_handle;
+}
+
+void discord_stop_typing(void* handle) {
+  if (!handle) return;
+  TaskHandle_t task_handle = (TaskHandle_t)handle;
+  xTaskNotifyGive(task_handle);
+}
+
+
+
 static void ready_task(void* pvParameters) {
   char* app_id = (char*)pvParameters;
   if (bot_config.on_ready) bot_config.on_ready(app_id);

@@ -77,3 +77,6 @@ esp_err_t discord_send_message(const char* channel_id, const char* content);
 esp_err_t discord_send_image_embed(const char* channel_id, const char* img_url);
 esp_err_t discord_api_post(const char* path, const char* data);
 esp_err_t discord_api_patch(const char* path, const char* data);
+
+void* discord_start_typing(const char* channel_id);
+void discord_stop_typing(void* handle);
