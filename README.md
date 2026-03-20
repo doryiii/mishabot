@@ -1,6 +1,6 @@
 # Mishabot: ESP32 Discord Image Bot
 
-A lightweight proof-of-concept Discord image bot written for the ESP32 using the ESP-IDF framework. It queries the Danbooru API for random images and posts them to Discord. It also has a fishing minigame with stats tracking.
+A lightweight proof-of-concept Discord image bot written for the ESP32 using the ESP-IDF framework. It queries the Danbooru API for random images and posts them to Discord. It also has a fishing minigame with stats tracking and a on-board "L"LM.
 
 ## Usage
 
@@ -23,7 +23,7 @@ Configure the project using `menuconfig` to set your WiFi and API credentials:
 
 ## Commands
 
-- /fish
+Images:
 - .misha
 - .furina
 - .karen
@@ -32,6 +32,12 @@ Configure the project using `menuconfig` to set your WiFi and API credentials:
 - .ika
 - .amber
 - .venti
+
+Interactions:
+- /fish
+
+LLM:
+- .slop
 
 ## License
 
