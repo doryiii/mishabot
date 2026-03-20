@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "cJSON.h"
 #include "discord_bot.h"
@@ -15,6 +16,86 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
+
+static const char* TAG = "misha_bot";
+
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+#include "esp_spiffs.h"
+#include "llm8.h"
+
+static Transformer transformer;
+static Tokenizer tokenizer;
+static bool llm_ready = false;
+
+static void init_llm() {
+  esp_vfs_spiffs_conf_t conf = {
+      .base_path = "/storage",
+      .partition_label = "storage",
+      .max_files = 5,
+      .format_if_mount_failed = false
+  };
+
+  esp_err_t ret = esp_vfs_spiffs_register(&conf);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to mount SPIFFS (%s)", esp_err_to_name(ret));
+    return;
+  }
+
+  ESP_LOGI(TAG, "Loading Transformer...");
+  build_transformer(&transformer, "/storage/stories3M-q80.bin");
+  ESP_LOGI(TAG, "Loading Tokenizer...");
+  build_tokenizer(
+      &tokenizer, "/storage/tok4096.bin", transformer.config.vocab_size
+  );
+  llm_ready = true;
+  ESP_LOGI(TAG, "LLM loaded and ready");
+}
+
+typedef struct {
+  char* channel_id;
+  char* prompt;
+} slop_task_arg_t;
+
+static void slop_task(void* pvParameters) {
+  slop_task_arg_t* arg = (slop_task_arg_t*)pvParameters;
+
+  if (llm_ready) {
+    discord_send_typing(arg->channel_id);
+
+    Sampler sampler;
+    int steps = 512;
+    if (steps > transformer.config.seq_len) steps = transformer.config.seq_len;
+
+    build_sampler(
+        &sampler, transformer.config.vocab_size, 1.0f, 0.9f,
+        (unsigned int)time(NULL)
+    );
+
+    // Discord message limit is 2000 chars
+    char* out_buf = calloc(1, 2048);
+    if (out_buf) {
+      generate(
+          &transformer, &tokenizer, &sampler, arg->prompt, steps, out_buf, 2048,
+          NULL, NULL
+      );
+      if (strlen(out_buf) > 0) {
+        discord_send_message(arg->channel_id, out_buf);
+      } else {
+        discord_send_message(arg->channel_id, "The model generated no output.");
+      }
+      free(out_buf);
+    }
+    free_sampler(&sampler);
+  } else {
+    discord_send_message(arg->channel_id, "LLM not ready (SPIFFS failure?).");
+  }
+
+  free(arg->channel_id);
+  free(arg->prompt);
+  free(arg);
+  vTaskDelete(NULL);
+}
+#endif
 
 typedef struct {
   uint32_t fished;
@@ -31,8 +112,6 @@ static void uid_to_nvs_key(const char* user_id, char* key_out) {
   }
   key_out[11] = '\0';
 }
-
-static const char* TAG = "misha_bot";
 
 #define SEEN_ACTIONS_SIZE 16
 static uint32_t seen_actions[SEEN_ACTIONS_SIZE];
@@ -157,8 +236,9 @@ static void handle_character_command(const char* channel_id, const char* tags) {
 
 static void handle_mem_command(const char* channel_id) {
   char buf[1536];
-  size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-  size_t min_free_heap = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+  size_t free_heap_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  size_t free_heap_ext = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  size_t min_free_heap = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
 
   int64_t uptime_us = esp_timer_get_time();
   int uptime_sec = (int)(uptime_us / 1000000);
@@ -170,9 +250,9 @@ static void handle_mem_command(const char* channel_id) {
   int offset = snprintf(
       buf, sizeof(buf),
       "```Uptime: %d days, %d hours, %d mins, %d secs\n\n"
-      "Heap free: %zu | min: %zu\n\n"
+      "Heap free: on-die: %zu | PSRAM: %zu | min: %zu\n\n"
       "Stack high watermark:\n",
-      days, hours, mins, secs, free_heap, min_free_heap
+      days, hours, mins, secs, free_heap_int, free_heap_ext, min_free_heap
   );
 
 #ifdef CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS
@@ -230,6 +310,18 @@ static void on_message(
 
   } else if (strcmp(content, ".venti") == 0) {
     handle_character_command(channel, "venti_%28genshin_impact%29");
+
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+  } else if (strncmp(content, ".slop", 5) == 0) {
+    const char* prompt = content + 5;
+    while (*prompt == ' ') prompt++;
+
+    slop_task_arg_t* arg = malloc(sizeof(slop_task_arg_t));
+    arg->channel_id = strdup(channel);
+    arg->prompt = strdup(prompt);
+
+    xTaskCreatePinnedToCore(slop_task, "slop_task", 16384, arg, 5, NULL, 1);
+#endif
 
   } else {
     ESP_LOGV(TAG, "[%s]: %s", username, content);
@@ -425,5 +517,8 @@ void misha_bot_init(const char* token) {
       .on_interaction_action = on_interaction_action,
   };
 
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+  init_llm();
+#endif
   discord_bot_init(&config);
 }
