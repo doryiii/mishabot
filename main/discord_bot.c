@@ -177,24 +177,11 @@ static void heartbeat_task(void* pvParameters) {
     xSemaphoreTake(bot_mutex, portMAX_DELAY);
     int interval = heartbeat_interval_ms;
     esp_websocket_client_handle_t client = ws_client;
-    bool acked = heartbeat_acked;
-    int seq = last_seq_num;
     xSemaphoreGive(bot_mutex);
 
     if (interval <= 0 || !client) {
       vTaskDelay(pdMS_TO_TICKS(1000));
       is_first = true;
-      continue;
-    }
-
-    if (!is_first && !acked) {
-      ESP_LOGW(
-          TAG,
-          "Heartbeat not acknowledged, possible zombie connection. "
-          "Reconnecting..."
-      );
-      esp_websocket_client_stop(client);
-      vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
 
@@ -205,6 +192,24 @@ static void heartbeat_task(void* pvParameters) {
       delay = interval;
     }
     vTaskDelay(pdMS_TO_TICKS(delay));
+
+    xSemaphoreTake(bot_mutex, portMAX_DELAY);
+    bool acked = heartbeat_acked;
+    int seq = last_seq_num;
+    xSemaphoreGive(bot_mutex);
+
+    if (!is_first && !acked) {
+      ESP_LOGW(
+          TAG,
+          "Heartbeat not acknowledged, possible zombie connection. "
+          "Reconnecting..."
+      );
+      esp_websocket_client_stop(client);
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      esp_websocket_client_start(client);
+      continue;
+    }
+
     is_first = false;
 
     char payload[128];
@@ -411,7 +416,7 @@ static void websocket_event_handler(
                   char* id_copy = strdup(global_app_id);
                   if (id_copy) {
                     xTaskCreate(
-                        ready_task, "discord_ready_handler", 4096, id_copy, 5,
+                        ready_task, "discord_ready_handler", 8192, id_copy, 5,
                         NULL
                     );
                   }
@@ -536,6 +541,6 @@ static void discord_bot_task(void* pvParameters) {
 void discord_bot_init(const discord_bot_config_t* config) {
   if (config) bot_config = *config;
   if (!bot_mutex) bot_mutex = xSemaphoreCreateMutex();
-  xTaskCreate(heartbeat_task, "discord_heartbeat", 2048, NULL, 4, NULL);
+  xTaskCreate(heartbeat_task, "discord_heartbeat", 4096, NULL, 4, NULL);
   xTaskCreate(discord_bot_task, "discord_bot", 4096, NULL, 4, NULL);
 }

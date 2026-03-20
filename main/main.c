@@ -51,7 +51,9 @@ static void heartbeat_led_task(void* pvParameter) {
 
 
 void app_main(void) {
+#ifdef CONFIG_LED_GPIO
   xTaskCreate(heartbeat_led_task, "heartbeat_led", 1024, NULL, 1, NULL);
+#endif
 
   // Initialize NVS
   esp_err_t ret = nvs_flash_init();
