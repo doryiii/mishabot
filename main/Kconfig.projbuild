@@ -54,4 +54,10 @@ menu "Project Configuration"
         help
             Set to 'y' if the LED is ARGB. RMT only.
 
+    config ESP32_S3_LCD_1_9
+        bool "Using ESP32-S3-LCD-1.9 board"
+        default n
+        help
+            Set to 'y' if using the ESP32-S3-LCD-1.9 board.
+
 endmenu

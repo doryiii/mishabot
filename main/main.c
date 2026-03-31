@@ -51,6 +51,13 @@ static void heartbeat_led_task(void* pvParameter) {
 
 
 void app_main(void) {
+#ifdef CONFIG_ESP32_S3_LCD_1_9
+  // Turn off LCD backlight (active low on this board)
+  gpio_reset_pin(14);
+  gpio_set_direction(14, GPIO_MODE_OUTPUT);
+  gpio_set_level(14, 1);
+#endif
+
 #ifdef CONFIG_LED_GPIO
   xTaskCreate(heartbeat_led_task, "heartbeat_led", 1024, NULL, 1, NULL);
 #endif
