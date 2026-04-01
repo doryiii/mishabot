@@ -15,10 +15,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include <stdio.h>
-#include <string.h>
 
 #include "driver/gpio.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -26,6 +24,8 @@
 #include "misha_bot.h"
 #include "nvs_flash.h"
 #include "wifi_station.h"
+
+#include "psa/crypto.h"
 
 static const char* TAG = "main";
 
@@ -71,6 +71,11 @@ void app_main(void) {
   }
   ESP_ERROR_CHECK(ret);
 
+  // Initialize PSA Crypto for ESP-IDF 6.0
+  if (psa_crypto_init() != PSA_SUCCESS) {
+    ESP_LOGE(TAG, "Failed to initialize PSA Crypto");
+  }
+
   if (CONFIG_LOG_MAXIMUM_LEVEL > CONFIG_LOG_DEFAULT_LEVEL) {
     esp_log_level_set("wifi", CONFIG_LOG_MAXIMUM_LEVEL);
   }
@@ -81,7 +86,8 @@ void app_main(void) {
   /* Check if we are connected */
   EventBits_t bits = xEventGroupGetBits(s_wifi_event_group);
   if (!(bits & WIFI_CONNECTED_BIT)) {
-    ESP_LOGE(TAG, "no wifi, exiting");
+    ESP_LOGE(TAG, "no wifi, rebooting");
+    esp_restart();
   }
 
   misha_bot_init(CONFIG_DISCORD_BOT_TOKEN);
