@@ -60,7 +60,6 @@ static void slop_task(void* pvParameters) {
   slop_task_arg_t* arg = (slop_task_arg_t*)pvParameters;
 
   if (llm_ready) {
-
     Sampler sampler;
     int steps = 512;
     if (steps > transformer.config.seq_len) steps = transformer.config.seq_len;

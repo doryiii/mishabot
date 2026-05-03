@@ -38,8 +38,9 @@ static void event_handler(
 ) {
   if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
     esp_wifi_connect();
-  } else if (event_base == WIFI_EVENT &&
-             event_id == WIFI_EVENT_STA_DISCONNECTED) {
+  } else if (
+      event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED
+  ) {
     if (CONFIG_WIFI_MAXIMUM_RETRY == 0) {
       ESP_LOGI(TAG, "retry to connect to the AP in 10s...");
       vTaskDelay(pdMS_TO_TICKS(10000));

@@ -62,6 +62,7 @@ static esp_err_t discord_api_request(
   snprintf(auth_header, sizeof(auth_header), "Bot %s", bot_config.token);
   esp_http_client_set_header(client, "Authorization", auth_header);
   esp_http_client_set_header(client, "Content-Type", "application/json");
+  esp_http_client_set_header(client, "User-Agent", "Misha (mishabot) ESP32");
 
   if (req_data) {
     esp_http_client_set_post_field(client, req_data, strlen(req_data));
@@ -145,12 +146,12 @@ esp_err_t discord_send_image_embed(
 static void discord_send_identify(esp_websocket_client_handle_t client) {
   if (!bot_config.token) return;
 
-  char payload[512];
+  char payload[640];
   snprintf(
       payload, sizeof(payload),
       "{\"op\":2,\"d\":{\"token\":\"%s\",\"intents\":%" PRIu32
-      ",\"properties\":{\"os\":\"linux\",\"browser\":\"esp32\",\"device\":"
-      "\"esp32\"}}}",
+      ",\"properties\":{\"$os\":\"linux\",\"$browser\":\"esp32\",\"$device\":"
+      "\"esp32\"},\"presence\":{\"status\":\"online\",\"afk\":false}}}",
       bot_config.token, bot_config.intents
   );
 
@@ -196,7 +197,6 @@ void discord_stop_typing(void* handle) {
   TaskHandle_t task_handle = (TaskHandle_t)handle;
   xTaskNotifyGive(task_handle);
 }
-
 
 
 static void ready_task(void* pvParameters) {
@@ -332,8 +332,10 @@ static void websocket_event_handler(
       break;
 
     case WEBSOCKET_EVENT_DISCONNECTED:
+      ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
+      break;
     case WEBSOCKET_EVENT_CLOSED:
-      ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED / CLOSED");
+      ESP_LOGI(TAG, "WEBSOCKET_EVENT_CLOSED");
       xSemaphoreTake(bot_mutex, portMAX_DELAY);
       heartbeat_interval_ms = 0;
       heartbeat_acked = true;
@@ -432,6 +434,17 @@ static void websocket_event_handler(
         xSemaphoreTake(bot_mutex, portMAX_DELAY);
         heartbeat_acked = true;
         xSemaphoreGive(bot_mutex);
+      } else if (opcode == 9) {  // Invalid Session
+        bool resumable = false;
+        if (cJSON_IsBool(d)) resumable = cJSON_IsTrue(d);
+        ESP_LOGW(
+            TAG, "Received Invalid Session (opcode 9), resumable: %s",
+            resumable ? "true" : "false"
+        );
+        // If not resumable, we should probably clear session and re-identify,
+        // but here we just log it to see if it's the issue.
+      } else if (opcode == 7) {  // Reconnect
+        ESP_LOGI(TAG, "Received Reconnect (opcode 7)");
       } else if (opcode == 0) {  // Dispatch
         if (cJSON_IsString(t)) {
           ESP_LOGD(TAG, "Received Dispatch Event: %s", t->valuestring);
